@@ -29,6 +29,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import app.clustercontrol.AppSettings
+import app.clustercontrol.BuildConfig
+import app.clustercontrol.Seed
 import app.clustercontrol.MainViewModel
 import app.clustercontrol.TransportKind
 import app.clustercontrol.UiState
@@ -90,6 +92,9 @@ private fun SettingsScreen(ui: UiState, vm: MainViewModel, modifier: Modifier) =
     }
     // a key generated or saved elsewhere replaces the draft copy
     LaunchedEffect(ui.settings.privateKey) { d = d.copy(privateKey = ui.settings.privateKey, publicKey = ui.settings.publicKey, passphrase = ui.settings.passphrase) }
+
+    val yn = { v: String -> if (v.isEmpty()) "no" else "sì" }
+    Text("v${BuildConfig.VERSION_NAME} · dati incorporati: chiave ${yn(Seed.sshKey)}, utente ${yn(Seed.sshUser)}, VPN ${yn(Seed.vpnUser + Seed.vpnPassword)}")
 
     Panel("Cluster") {
         Field("Host", d.host) { d = d.copy(host = it) }

@@ -51,7 +51,7 @@ class ClusterOps(
 
     fun <T> withCluster(block: (ClusterSession, HelperApi) -> T): T {
         val s = settings()
-        if (!s.configured) throw ConfigMissingException()
+        if (!s.configured) throw ConfigMissingException(s.missing)
         val cfg = ClusterConfig(s.host.trim(), s.user.trim(), s.privateKey, s.passphrase.ifBlank { null }, s.port)
         return ClusterSession.open(cfg, transports.get(s) { _, _ -> }, hostKeys).use { block(it, HelperApi(it)) }
     }
@@ -121,7 +121,7 @@ class ClusterOps(
                 false
             }
         }
-        if (!s.configured) return emit("[KO]  configurazione  ${ConfigMissingException().message}")
+        if (!s.configured) return emit("[KO]  configurazione  ${ConfigMissingException(s.missing).message}")
         val cfg = ClusterConfig(s.host.trim(), s.user.trim(), s.privateKey, s.passphrase.ifBlank { null }, s.port)
         val transport = transports.get(s) { name, detail -> emit("      sstp $name  $detail".trimEnd()) }
         if (s.transport == TransportKind.DIRECT) {

@@ -33,6 +33,7 @@ docker run --rm `
     -v "${proj}:/src:ro" `
     -v "${proj}\dist:/dist" `
     -v cc-gradle:/gradle-cache `
+    -v cc-android-home:/root/.android `
     -v "${work}:/work" `
     $image bash -c $script
 if ($LASTEXITCODE -ne 0) { throw "gradle failed (exit $LASTEXITCODE)" }

@@ -13,7 +13,8 @@ data class ClusterError(val kind: ErrorKind, val message: String)
 /** The action ran but its outcome is a failure (e.g. the cluster-side tick failed). */
 class ActionFailed(message: String) : Exception(message)
 
-class ConfigMissingException : Exception("Configura host, utente e chiave SSH in Impostazioni")
+class ConfigMissingException(missing: List<String> = emptyList()) :
+    Exception("Configura in Impostazioni" + if (missing.isEmpty()) "" else ": manca " + missing.joinToString(", "))
 
 private val AUTH_MARKERS = listOf("auth fail", "auth cancel", "userauth fail", "invalid privatekey", "passphrase")
 
@@ -29,7 +30,7 @@ fun classify(e: Throwable): ClusterError {
             ClusterError(ErrorKind.AUTH, "Autenticazione VPN fallita: controlla utente e password VPN")
         chain.any { it is HelperMissingException } ->
             ClusterError(ErrorKind.HELPER_MISSING, "Helper assente sul cluster: esegui Script > Aggiorna cluster")
-        chain.any { it is ConfigMissingException } -> ClusterError(ErrorKind.CONFIG, ConfigMissingException().message!!)
+        chain.any { it is ConfigMissingException } -> ClusterError(ErrorKind.CONFIG, chain.first { it is ConfigMissingException }.message!!)
         chain.any { it is UnsupportedOperationException } -> ClusterError(ErrorKind.CONFIG, e.message ?: "Non supportato")
         chain.any { it is NoActiveJobException } -> ClusterError(ErrorKind.OTHER, "Nessun job attivo")
         chain.any { it is JSchException || it is java.io.IOException } ->

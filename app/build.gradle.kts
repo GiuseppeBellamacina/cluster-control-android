@@ -24,8 +24,8 @@ android {
         applicationId = "app.clustercontrol"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         for ((field, key) in listOf(
             "SEED_VPN_HOST" to "vpnHost", "SEED_VPN_USER" to "vpnUser", "SEED_VPN_PASSWORD" to "vpnPassword",
             "SEED_SSH_HOST" to "sshHost", "SEED_SSH_USER" to "sshUser", "SEED_SSH_KEY" to "sshKey",

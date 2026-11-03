@@ -26,8 +26,18 @@ data class AppSettings(
     val vpnPassword: String = "",
     val includeSrc: Boolean = false,
 ) {
-    val configured get() = host.isNotBlank() && user.isNotBlank() && privateKey.isNotBlank() &&
-        (transport == TransportKind.DIRECT || (vpnHost.isNotBlank() && vpnUser.isNotBlank() && vpnPassword.isNotBlank()))
+    val missing: List<String>
+        get() = buildList {
+            if (host.isBlank()) add("host")
+            if (user.isBlank()) add("utente")
+            if (privateKey.isBlank()) add("chiave ssh")
+            if (transport == TransportKind.SSTP) {
+                if (vpnHost.isBlank()) add("host VPN")
+                if (vpnUser.isBlank()) add("utente VPN")
+                if (vpnPassword.isBlank()) add("password VPN")
+            }
+        }
+    val configured get() = missing.isEmpty()
 }
 
 data class HistoryEntry(
