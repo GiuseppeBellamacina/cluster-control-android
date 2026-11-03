@@ -35,3 +35,7 @@ fun resolveJobs(catalog: List<ConfigCell>, jobs: List<JobSpec>): List<JobEntry> 
     val cell = ConfigCatalog.resolve(catalog, it.config)
     buildEntry(it.type, cell.path, it.tag ?: cell.name, it.mode)
 }
+
+/** The presets file of the t2g repo (cluster/presets.yaml), read straight from GitHub. */
+fun fetchPresets(fetcher: SourceFetcher, repo: String, branch: String): List<Preset> =
+    parsePresets(String(fetcher.fetch(repo, branch, SyncManifest.PRESETS_PATH), Charsets.UTF_8))

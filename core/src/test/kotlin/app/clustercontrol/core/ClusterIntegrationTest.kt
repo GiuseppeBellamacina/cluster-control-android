@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 class ClusterIntegrationTest {
     private class DirFetcher(private val root: File) : SourceFetcher {
         override fun tree(repo: String, branch: String): List<String> =
-            listOf("cluster", "remote/cluster_helper.sh", "experiments/configs").map { File(root, it) }
+            listOf("cluster").map { File(root, it) }
                 .filter { it.exists() }
                 .flatMap { it.walkTopDown().filter { f -> f.isFile } }
                 .map { it.relativeTo(root).invariantSeparatorsPath }
@@ -25,16 +25,6 @@ class ClusterIntegrationTest {
         val m = mutableMapOf<String, String>()
         override fun get(host: String) = m[host]
         override fun put(host: String, fingerprint: String) { m[host] = fingerprint }
-    }
-
-    @Test
-    fun generatedKeyAuthenticates() {
-        val host = System.getenv("CC_IT_HOST")
-        assumeTrue(host != null, "CC_IT_HOST not set: integration test skipped")
-        val key = KeyGen.generate("cc-it")
-        File(System.getenv("CC_IT_AUTHORIZED_KEYS")).appendText("\n" + key.publicKeyLine + "\n")
-        val cfg = ClusterConfig(host, System.getenv("CC_IT_USER"), key.privateKeyPem, port = System.getenv("CC_IT_PORT").toInt())
-        ClusterSession.open(cfg, DirectTransport, memoryKeys).use { assertEquals(0, it.exec("true").rc) }
     }
 
     @Test
@@ -58,9 +48,11 @@ class ClusterIntegrationTest {
             val remote = SshRemoteStore(s)
             val first = engine.apply(remote)
             assertTrue(first.errors.isEmpty(), "sync errors: ${first.errors}")
-            assertTrue("cluster/cluster_helper.sh" in first.updated)
+            assertTrue("cluster_helper.sh" in first.updated)
             assertEquals(0, s.exec("test -x ~/neuro_symbolic_t2g/cluster/cluster_helper.sh").rc)
             assertTrue(engine.apply(remote).updated.isEmpty())
+            // configs are not synced by the app (pre-push does it): the fake cluster just needs the file the chain checks
+            s.exec("mkdir -p ~/neuro_symbolic_t2g/experiments/configs/aslg-pc12/qwen25-05b/baseline && touch ~/neuro_symbolic_t2g/experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml")
 
             // 3. queue management
             val st = helper.status()

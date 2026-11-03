@@ -43,30 +43,19 @@ class GithubFetcher(private val token: String? = null) : SourceFetcher {
         get("https://raw.githubusercontent.com/$repo/$branch/$path")
 }
 
-/** A file to keep identical on the cluster: repo path -> path relative to the project root on the cluster. */
-data class SyncItem(val repoPath: String, val remotePath: String, val executable: Boolean)
+/** A script to keep identical on the cluster: repo path -> path relative to the project root on the cluster. */
+data class SyncItem(val repoPath: String, val remotePath: String, val executable: Boolean) {
+    val name: String get() = repoPath.substringAfterLast('/')
+}
 
-data class SyncOptions(val includeSrc: Boolean = false)
-
+/** The cluster utility scripts (the .sh files of cluster/) and nothing else: src/ and configs travel with the repo's pre-push hook. */
 object SyncManifest {
-    /** Everything the chain needs on the cluster: scripts, the helper, and the experiment configs. */
-    fun items(tree: List<String>, options: SyncOptions = SyncOptions()): List<SyncItem> {
-        val out = LinkedHashMap<String, SyncItem>()
-        for (p in tree.sorted()) {
-            when {
-                p.startsWith("cluster/") && p.count { it == '/' } == 1 && p.endsWith(".sh") ->
-                    out[p] = SyncItem(p, p, true)
-                p.startsWith("experiments/configs/") && p.endsWith(".yaml") -> out[p] = SyncItem(p, p, false)
-                options.includeSrc && p.startsWith("src/") && p.endsWith(".py") -> out[p] = SyncItem(p, p, false)
-            }
-        }
-        // the helper lives in remote/ in the repo but runs from cluster/ on the cluster
-        if ("remote/cluster_helper.sh" in tree) {
-            out["remote/cluster_helper.sh"] =
-                SyncItem("remote/cluster_helper.sh", "cluster/cluster_helper.sh", true)
-        }
-        return out.values.toList()
-    }
+    const val PRESETS_PATH = "cluster/presets.yaml"
+
+    fun items(tree: List<String>): List<SyncItem> = tree
+        .filter { it.startsWith("cluster/") && it.count { c -> c == '/' } == 1 && it.endsWith(".sh") }
+        .sorted()
+        .map { SyncItem(it, it, true) }
 }
 
 /** The cluster's copy of the project: hashes + uploads (an interface so tests need no sshd). */
@@ -93,6 +82,8 @@ class SshRemoteStore(private val session: ClusterSession, private val root: Stri
         session.put("$root/$relPath", bytes, executable)
 }
 
+data class ScriptStatus(val name: String, val upToDate: Boolean)
+
 data class SyncReport(val checked: Int, val updated: List<String>, val errors: List<String>)
 
 class SyncEngine(
@@ -102,16 +93,16 @@ class SyncEngine(
 ) {
     private fun sha(b: ByteArray) = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 
-    fun plan(remote: RemoteStore, options: SyncOptions = SyncOptions()): List<SyncItem> =
-        SyncManifest.items(fetcher.tree(repo, branch), options).let { items ->
-            val bytesByItem = items.associateWith { fetcher.fetch(repo, branch, it.repoPath) }
-            val remoteHashes = remote.hashes(items.map { it.remotePath })
-            items.filter { sha(bytesByItem.getValue(it)) != remoteHashes[it.remotePath] }
-        }
+    /** Every cluster script with whether the cluster already has the same bytes. */
+    fun status(remote: RemoteStore): List<ScriptStatus> {
+        val items = SyncManifest.items(fetcher.tree(repo, branch))
+        val remoteHashes = remote.hashes(items.map { it.remotePath })
+        return items.map { ScriptStatus(it.name, sha(fetcher.fetch(repo, branch, it.repoPath)) == remoteHashes[it.remotePath]) }
+    }
 
     /** Uploads only what differs from the cluster. Idempotent: a second run reports nothing updated. */
-    fun apply(remote: RemoteStore, options: SyncOptions = SyncOptions()): SyncReport {
-        val items = SyncManifest.items(fetcher.tree(repo, branch), options)
+    fun apply(remote: RemoteStore): SyncReport {
+        val items = SyncManifest.items(fetcher.tree(repo, branch))
         val remoteHashes = remote.hashes(items.map { it.remotePath })
         val updated = mutableListOf<String>()
         val errors = mutableListOf<String>()
@@ -120,9 +111,9 @@ class SyncEngine(
                 val bytes = fetcher.fetch(repo, branch, item.repoPath)
                 if (sha(bytes) == remoteHashes[item.remotePath]) continue
                 remote.put(item.remotePath, bytes, item.executable)
-                updated += item.remotePath
+                updated += item.name
             } catch (e: Exception) {
-                errors += "${item.remotePath}: ${e.message}"
+                errors += "${item.name}: ${e.message}"
             }
         }
         return SyncReport(items.size, updated, errors)

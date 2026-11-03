@@ -183,27 +183,73 @@ class SyncTest {
     }
 
     @Test
-    fun manifestSelectsOnlyWhatTheClusterNeeds() {
+    fun manifestSelectsOnlyTheClusterScripts() {
         val items = SyncManifest.items(files.keys.toList())
-        val remote = items.map { it.remotePath }.toSet()
-        assertEquals(
-            setOf("cluster/_lib.sh", "cluster/train.sh", "cluster/cluster_helper.sh", "experiments/configs/aslg-pc12/qwen25-05b/base.yaml"),
-            remote,
-        )
-        assertTrue("src/x.py" in SyncManifest.items(files.keys.toList(), SyncOptions(includeSrc = true)).map { it.remotePath })
+        assertEquals(listOf("cluster/_lib.sh", "cluster/train.sh"), items.map { it.remotePath })
+        assertTrue(items.all { it.executable })
     }
 
     @Test
     fun syncIsIdempotentAndUploadsOnlyChanges() {
         val remote = FakeRemote()
         val engine = SyncEngine(fetcher, "o/r")
+        assertEquals(listOf(false, false), engine.status(remote).map { it.upToDate })
         val first = engine.apply(remote)
-        assertEquals(4, first.updated.size)
-        assertEquals(true, remote.modes["cluster/cluster_helper.sh"])
-        assertEquals(false, remote.modes["experiments/configs/aslg-pc12/qwen25-05b/base.yaml"])
+        assertEquals(listOf("_lib.sh", "train.sh"), first.updated)
+        assertEquals(true, remote.modes["cluster/train.sh"])
         assertTrue(engine.apply(remote).updated.isEmpty())
+        assertEquals(listOf(true, true), engine.status(remote).map { it.upToDate })
         remote.store["cluster/train.sh"] = "stale".toByteArray()
-        assertEquals(listOf("cluster/train.sh"), engine.apply(remote).updated)
-        assertNotNull(engine.plan(remote).let { it })
+        assertEquals(listOf(false), engine.status(remote).filter { !it.upToDate }.map { it.upToDate })
+        assertEquals(listOf("train.sh"), engine.apply(remote).updated)
+    }
+}
+
+class TimingAndNamesTest {
+    @Test
+    fun countdownAndAgo() {
+        assertEquals("23:41", formatCountdown(23 * 60_000L + 41_000))
+        assertEquals("1:02:03", formatCountdown(3_723_000))
+        assertEquals("ora", formatCountdown(-5))
+        assertEquals("adesso", formatAgo(10_000))
+        assertEquals("12 min fa", formatAgo(12 * 60_000L))
+        assertEquals("3 h fa", formatAgo(3 * 3_600_000L))
+        assertEquals("2 g fa", formatAgo(2 * 86_400_000L))
+    }
+
+    @Test
+    fun nextTick() {
+        assertNull(nextTickAt(null, 60, 1_000))
+        assertEquals(1_000 + 60 * 60_000L, nextTickAt(1_000, 60, 5_000))
+        assertEquals(1_000 + 15 * 60_000L, nextTickAt(1_000, 5, 5_000)) // clamped to the 15 min minimum
+    }
+
+    @Test
+    fun percentAndMove() {
+        assertEquals(31, percentOf(1560, 5000))
+        assertNull(percentOf(null, 5000))
+        assertNull(percentOf(10, 0))
+        assertEquals(listOf("b", "c", "a"), listOf("a", "b", "c").moved(0, 2))
+        assertEquals(listOf("c", "a", "b"), listOf("a", "b", "c").moved(2, 0))
+        assertFailsWith<IllegalArgumentException> { listOf("a").moved(0, 3) }
+    }
+
+    @Test
+    fun jobTitles() {
+        assertEquals(JobTitle("train", "CoNLL-2003 · Qwen2.5 1.5B", "GRPO · zero-shot"), JobNames.parse("train-conll-2003-qwen25-15b-grpo-zero-shot"))
+        assertEquals(JobTitle("eval", "ASLG-PC12 · Qwen2.5 0.5B", "SFT + GRPO · few-shot"), JobNames.parse("eval-aslg-pc12-sft-grpo-few-shot"))
+        assertEquals("Baseline · zero-shot · no grammar", JobNames.parse("phoenix-2014t-baseline-zero-shot-no-grammar").subtitle)
+        assertEquals("Ablation · loss · dr-grpo", JobNames.parse("aslg-pc12-ablations-loss-dr-grpo").subtitle)
+        assertEquals(JobTitle(null, "something-else", ""), JobNames.parse("something-else"))
+        assertEquals("eval", JobNames.of(JobEntry("eval", "c.yaml", "wos-46985-baseline-zero-shot")).type)
+    }
+
+    @Test
+    fun everyCatalogCellHasAReadableTitle() {
+        val tree = object {}.javaClass.getResourceAsStream("/config_tree.txt")!!.readBytes().toString(Charsets.UTF_8).lines().filter { it.isNotBlank() }
+        for (c in ConfigCatalog.fromTree(tree)) {
+            val t = JobNames.parse(c.name)
+            assertTrue(" · " in t.title && t.subtitle.isNotBlank(), "no readable title for ${c.name}: $t")
+        }
     }
 }
