@@ -2,7 +2,7 @@
 #   .\sstp-lab.ps1 -LabArgs "--no-auth"          # stops before sending credentials
 #   .\sstp-lab.ps1 -LabArgs "--target 151.97.253.110:22"   # ONE real authentication attempt
 param(
-    [string]$EnvFile = "C:\Users\giuse\AppData\Local\Temp\claude\d--Codici-Workspace\6d4c3be6-f987-4c90-98d9-f45a715f6d1c\scratchpad\vpn.env",
+    [Parameter(Mandatory)][string]$EnvFile,
     [string]$LabArgs = ""
 )
 $ErrorActionPreference = "Stop"

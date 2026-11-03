@@ -1,7 +1,8 @@
 # ONE real VPN login + ssh to the real cluster through the userspace SSTP tunnel (read-only helper `status`).
+# -EnvFile: a file with VPN_HOST, VPN_USER, VPN_PASSWORD, T2G_SSH_HOST, T2G_SSH_USER (passed only via docker --env-file)
 # Credentials only via docker --env-file; the ssh key is mounted read-only at /key.
 param(
-    [string]$EnvFile = "C:\Users\giuse\AppData\Local\Temp\claude\d--Codici-Workspace\6d4c3be6-f987-4c90-98d9-f45a715f6d1c\scratchpad\vpn.env",
+    [Parameter(Mandatory)][string]$EnvFile,
     [Parameter(Mandatory)][string]$KeyFile
 )
 $ErrorActionPreference = "Stop"
