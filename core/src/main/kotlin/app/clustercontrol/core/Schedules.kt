@@ -19,29 +19,23 @@ data class Schedule(
     }
 }
 
-enum class NoticeKind { JOB_STARTED, JOB_FINISHED, QUEUE_EMPTY, NEW_ERRORS, PAUSED, RESUMED }
+enum class NoticeKind { JOB_FINISHED, JOB_FAILED, ALL_DONE }
 
-data class Notice(val kind: NoticeKind, val message: String)
+/** [key] is the SLURM job id (one notification per job); empty for [NoticeKind.ALL_DONE]. */
+data class Notice(val kind: NoticeKind, val title: String, val message: String, val key: String = "")
 
-/** What changed between two snapshots, for local notifications. */
+/** What the owner wants to hear between two snapshots: a job that ended (done or failed) and the end of everything. */
 fun diffSnapshots(prev: Snapshot?, now: Snapshot): List<Notice> {
     if (prev == null) return emptyList()
-    val out = mutableListOf<Notice>()
-    val before = prev.active
-    val after = now.active
-    if (before != null && (after == null || after.id != before.id)) {
-        out += Notice(NoticeKind.JOB_FINISHED, "Job ${before.name} (${before.id}) is no longer running")
+    val ended = prev.active?.takeIf { now.active == null || now.active.id != it.id }
+    val allDone = now.active == null && now.queue.isEmpty() && (prev.active != null || prev.queue.isNotEmpty())
+    if (ended == null && !allDone) return emptyList()
+    val failed = now.errorsCount > prev.errorsCount
+    val result = if (failed) "non riuscito" else "terminato"
+    val label = ended?.let { JobNames.parse(it.name) }?.let { "${it.title} · ${it.subtitle}".trimEnd(' ', '·') }
+    return if (allDone) {
+        listOf(Notice(NoticeKind.ALL_DONE, "Tutti i job sono finiti", label?.let { "Ultimo: $it ($result)" } ?: "Coda vuota, nessun job in esecuzione"))
+    } else {
+        listOf(Notice(if (failed) NoticeKind.JOB_FAILED else NoticeKind.JOB_FINISHED, "Job $result", label.orEmpty(), ended!!.id))
     }
-    if (after != null && after.id != before?.id) {
-        out += Notice(NoticeKind.JOB_STARTED, "Job ${after.name} (${after.id}) started")
-    }
-    if (prev.queue.isNotEmpty() && now.queue.isEmpty() && after == null) {
-        out += Notice(NoticeKind.QUEUE_EMPTY, "Queue is empty and nothing is running")
-    }
-    if (now.errorsCount > prev.errorsCount) {
-        out += Notice(NoticeKind.NEW_ERRORS, "${now.errorsCount - prev.errorsCount} new chain error(s)")
-    }
-    if (now.stopped && !prev.stopped) out += Notice(NoticeKind.PAUSED, "Chain paused")
-    if (!now.stopped && prev.stopped) out += Notice(NoticeKind.RESUMED, "Chain resumed")
-    return out
 }

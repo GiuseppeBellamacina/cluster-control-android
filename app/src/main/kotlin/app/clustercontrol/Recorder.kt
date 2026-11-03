@@ -10,7 +10,8 @@ fun interface Notifier {
 object NoticeIds {
     const val FAILURE = 1
     const val SUSPENDED = 2
-    const val CHAIN = 3
+    const val ALL_DONE = 3
+    const val JOB_BASE = 1000 // + the SLURM job id: one notification per job
 }
 
 /** Which schedules WorkManager should be running: one slot per enabled schedule, none while suspended. */
@@ -52,7 +53,7 @@ class Recorder(
         }
         val entry = HistoryEntry(t0, source, op.name, ok, message.take(300), clock() - t0)
         stores.addHistory(entry)
-        if (!ok && auto) notifier.notify(NoticeIds.FAILURE, "$source: ${op.label} fallito", message)
+        if (!ok && auto) notifier.notify(NoticeIds.FAILURE, "${op.label} non riuscito", message)
         return entry
     }
 }

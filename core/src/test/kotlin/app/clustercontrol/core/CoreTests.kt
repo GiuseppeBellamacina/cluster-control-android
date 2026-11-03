@@ -149,15 +149,28 @@ class SchedulesTest {
     }
 
     @Test
-    fun diffDetectsFinishAndStart() {
-        val a = ActiveJob("1", "train-x", "RUNNING")
+    fun diffNoticesJobEndAndAllDone() {
+        val a = ActiveJob("1", "train-conll-2003-qwen25-15b-grpo-zero-shot", "RUNNING")
         val b = ActiveJob("2", "eval-x", "RUNNING")
-        val kinds = diffSnapshots(snap(a, queue = 1), snap(b)).map { it.kind }
-        assertTrue(NoticeKind.JOB_FINISHED in kinds && NoticeKind.JOB_STARTED in kinds)
-        assertTrue(diffSnapshots(snap(a), snap(null)).any { it.kind == NoticeKind.JOB_FINISHED })
-        assertTrue(diffSnapshots(snap(null, queue = 1), snap(null)).any { it.kind == NoticeKind.QUEUE_EMPTY })
-        assertTrue(diffSnapshots(snap(), snap(errors = 2)).any { it.kind == NoticeKind.NEW_ERRORS })
-        assertTrue(diffSnapshots(snap(), snap(stopped = true)).any { it.kind == NoticeKind.PAUSED })
+        // a job ended and the next one is running: one notice for the ended job
+        val n = diffSnapshots(snap(a, queue = 1), snap(b)).single()
+        assertEquals(NoticeKind.JOB_FINISHED, n.kind)
+        assertEquals("1", n.key)
+        assertTrue("CoNLL-2003" in n.message)
+        // ended together with new chain errors: failed
+        assertEquals(NoticeKind.JOB_FAILED, diffSnapshots(snap(a, queue = 1), snap(b, errors = 1)).single().kind)
+        // the last job ended and nothing is left: a single "all done" notice that names it
+        val done = diffSnapshots(snap(a), snap(null)).single()
+        assertEquals(NoticeKind.ALL_DONE, done.kind)
+        assertTrue("Ultimo" in done.message && "terminato" in done.message)
+        assertTrue("non riuscito" in diffSnapshots(snap(a), snap(null, errors = 1)).single().message)
+        // queue drained while idle
+        assertEquals(NoticeKind.ALL_DONE, diffSnapshots(snap(null, queue = 1), snap(null)).single().kind)
+        // quiet cases
+        assertTrue(diffSnapshots(snap(a), snap(a)).isEmpty())
+        assertTrue(diffSnapshots(snap(), snap(stopped = true)).isEmpty())
+        assertTrue(diffSnapshots(snap(), snap(errors = 2)).isEmpty())
+        assertTrue(diffSnapshots(snap(null, queue = 1), snap(b, queue = 0)).isEmpty())
         assertTrue(diffSnapshots(null, snap(a)).isEmpty())
     }
 }

@@ -10,7 +10,6 @@ import app.clustercontrol.core.Snapshot
 import app.clustercontrol.core.SshRemoteStore
 import app.clustercontrol.core.SyncEngine
 import app.clustercontrol.core.Transport
-import app.clustercontrol.core.diffSnapshots
 
 enum class StepState { IDLE, RUNNING, OK, FAIL }
 
@@ -21,17 +20,9 @@ class ClusterOps(
     private val live: LiveSession,
     private val connector: Connector,
     private val stores: Stores,
-    private val notifier: Notifier,
     private val recorder: Recorder,
 ) {
     private fun engine() = SyncEngine(GithubFetcher(), Seed.REPO, Seed.BRANCH)
-
-    /** Persists [snap] as the latest known state; [notify] raises local notifications for what changed since the previous one. */
-    private fun storeSnapshot(snap: Snapshot, notify: Boolean) {
-        val prev = stores.state.value.snapshot
-        if (notify) diffSnapshots(prev, snap).forEach { notifier.notify(NoticeIds.CHAIN, "ClusterControl", it.message) }
-        live.publish(snap)
-    }
 
     /** [block] followed by a fresh monitor, so the log and progress are current right after the change. */
     private suspend fun mutating(auto: Boolean, block: (ClusterSession, HelperApi) -> Snapshot): Snapshot =
@@ -69,14 +60,14 @@ class ClusterOps(
             failed = r.tickFailed
             r.snapshot
         }
-        storeSnapshot(snap, auto)
+        live.publish(snap)
         if (failed) throw ActionFailed("Tick fallito sul cluster (${describe(snap)})")
         prefix + "Tick ok: " + describe(snap)
     }
 
     suspend fun status(source: String, auto: Boolean) = recorder.record(Op.STATUS, source, auto) {
         val snap = mutating(auto) { _, h -> h.monitor(LiveSession.MONITOR_LINES) }
-        storeSnapshot(snap, auto)
+        live.publish(snap)
         "Stato: " + describe(snap)
     }
 
@@ -85,7 +76,7 @@ class ClusterOps(
 
     /** A queue / chain change: [block] returns the new snapshot; [ok] is the history text. */
     suspend fun mutate(op: Op, ok: String, block: (HelperApi) -> Snapshot) = recorder.record(op, "manuale", false) {
-        storeSnapshot(mutating(false) { _, h -> block(h) }, false)
+        live.publish(mutating(false) { _, h -> block(h) })
         ok
     }
 

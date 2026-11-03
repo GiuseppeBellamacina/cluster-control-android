@@ -70,6 +70,8 @@ class LiveSession(
     private val stores: Stores,
     private val onFailure: (Throwable) -> ClusterError,
     private val scope: CoroutineScope,
+    /** Called after every published snapshot with the previous one and whether the app is in the foreground. */
+    private val onChange: (Snapshot?, Snapshot, Boolean) -> Unit = { _, _, _ -> },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val _state = MutableStateFlow(
@@ -161,8 +163,10 @@ class LiveSession(
 
     fun publish(snap: Snapshot) {
         val at = clock()
+        val prev = stores.state.value.snapshot
         stores.updateState { it.copy(snapshot = snap, snapshotAt = at) }
         _state.update { it.copy(snapshot = snap, snapshotAt = at, error = null, link = Link.ONLINE) }
+        onChange(prev, snap, foreground)
     }
 
     private suspend fun poll(withSeries: Boolean) {

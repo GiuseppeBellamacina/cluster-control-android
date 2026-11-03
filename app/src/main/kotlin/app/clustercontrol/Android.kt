@@ -25,17 +25,21 @@ import androidx.work.workDataOf
 
 import java.security.Security
 import java.util.concurrent.TimeUnit
+import app.clustercontrol.core.NoticeKind
+import app.clustercontrol.core.diffSnapshots
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 
-private const val CHANNEL = "cluster"
+private const val ERRORS = "errors"
+private const val JOBS = "jobs"
 
 class AndroidNotifier(private val ctx: Context) : Notifier {
     init {
-        ctx.getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(NotificationChannel(CHANNEL, "Cluster", NotificationManager.IMPORTANCE_DEFAULT))
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(ERRORS, "Errori", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel(JOBS, "Job", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
     override fun notify(id: Int, title: String, text: String) {
@@ -45,7 +49,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
         val open = android.app.PendingIntent.getActivity(
             ctx, 0, Intent(ctx, MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE,
         )
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
+        val n = NotificationCompat.Builder(ctx, if (id == NoticeIds.FAILURE || id == NoticeIds.SUSPENDED) ERRORS else JOBS)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(title).setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(open).setAutoCancel(true).build()
@@ -101,8 +105,16 @@ class Graph(ctx: Context) {
     private val connector = Connector(SecureHostKeys(ctx))
     private val recorder = Recorder(stores, notifier, onSuspended = { scheduler.sync() })
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val live = LiveSession(connector, stores, recorder::handleFailure, scope)
-    val ops = ClusterOps(live, connector, stores, notifier, recorder)
+    // a job ending is news only when the app is not on screen (otherwise the dashboard shows it)
+    val live = LiveSession(connector, stores, recorder::handleFailure, scope, onChange = { prev, now, foreground ->
+        if (!foreground) {
+            diffSnapshots(prev, now).forEach {
+                val id = if (it.kind == NoticeKind.ALL_DONE) NoticeIds.ALL_DONE else NoticeIds.JOB_BASE + (it.key.toIntOrNull() ?: 0)
+                notifier.notify(id, it.title, it.message)
+            }
+        }
+    })
+    val ops = ClusterOps(live, connector, stores, recorder)
 }
 
 class ClusterApp : Application() {

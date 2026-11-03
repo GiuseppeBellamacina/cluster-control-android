@@ -26,6 +26,7 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Queue**: drag and drop reorder, swipe to delete with undo, add jobs or presets from a sheet, pause, kill.
 - **Log**: raw log of the active job.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum).
+- **Notifications**: a failed scheduled tick or sync, each job that ends (done or failed), and when every job is finished.
 - **More**: cluster scripts sync status, connection check (VPN, ssh, cluster), history of every operation.
 - While the app is open it keeps one tunnel and one ssh session alive and refreshes every few seconds;
   in the background it opens short-lived sessions only for scheduled runs.
