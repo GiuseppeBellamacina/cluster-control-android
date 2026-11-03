@@ -9,6 +9,17 @@ The cluster accepts ssh only from the university network. The app reaches it thr
 implemented in userspace: the tunnel exists only while the app talks to the cluster and carries nothing else, so
 the rest of the phone never goes through the VPN.
 
+## Screenshots
+
+<p>
+  <img src="docs/screenshots/dashboard.png" width="23%" alt="Dashboard">
+  <img src="docs/screenshots/queue.png" width="23%" alt="Queue">
+  <img src="docs/screenshots/log.png" width="23%" alt="Log">
+  <img src="docs/screenshots/automations.png" width="23%" alt="Automations">
+</p>
+
+Rendered on the JVM with sample data (Paparazzi), not taken from a device.
+
 ## Features
 
 - **Dashboard**: active job with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
