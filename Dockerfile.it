@@ -1,0 +1,12 @@
+# Integration-test image: the build image + a throwaway sshd and a fake SLURM (it/shims).
+FROM cc-android-build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssh-server openssh-client util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/sshd \
+    && useradd -m -s /bin/bash tester
+
+COPY it/shims/ /usr/local/bin/
+COPY it/entry.sh /entry.sh
+RUN chmod +x /usr/local/bin/squeue /usr/local/bin/sbatch /usr/local/bin/sacct /usr/local/bin/scancel /entry.sh

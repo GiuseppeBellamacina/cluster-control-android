@@ -1,0 +1,245 @@
+# remote/presets.yaml — job presets ("tiers") for the TUI's Presets screen.
+#
+# LOCAL FILE, read only by remote/tui.py (remote/presets.py). remote/app.py
+# never imports this and never sees a preset id — the TUI resolves whichever
+# preset(s) the user picks into a plain job list ({type, config, tag, mode})
+# and sends THAT to the existing POST /jobs/batch (append) or POST /queue
+# (replace) endpoints, the same contract any single ad-hoc job already uses.
+# So: edit this file freely, reorder/add/remove presets, no Render redeploy.
+#
+# `config` values are the short names from remote/app.py:CONFIG_MAP (also
+# GET /configs). `tag` is set explicitly and equal to `config` on every job
+# (it is also the API default now, but explicit keeps the file readable):
+# names are cell tags, always prefixed with the dataset
+# (aslg-pc12-grpo-few-shot, phoenix-2014t-grpo-few-shot), so no two cells or
+# datasets share a tag.
+#
+# Order of presets here is also the order they're offered in the picker, but
+# what actually matters for a launch is the order the USER puts them in
+# (PresetsScreen lets you queue several presets together, reordered freely).
+#
+# Tiers below mirror the priority discussed for the post-wipe campaign:
+# Tier 0 is a cheap canary, Tier 1 is the core that can flip Finding 1,
+# Tier 2-4 are decreasing marginal value. See docs/latex or FINDINGS.md for
+# the full reasoning; this file only needs to stay in sync with which
+# configs exist (experiments/configs/<dataset>/qwen25-05b/**).
+
+presets:
+  - id: tier0-canary
+    label: "Tier 0 — Canarino"
+    description: >-
+      Le 3 baseline eval-only (~90 min totali). Verifica che il codice appena
+      caricato funzioni prima di impegnare un job lungo — non un risultato di
+      per sé, un test di fumo.
+    jobs:
+      - {type: eval, config: aslg-pc12-baseline-zero-shot, tag: aslg-pc12-baseline-zero-shot}
+      - {type: eval, config: aslg-pc12-baseline-zero-shot-no-grammar, tag: aslg-pc12-baseline-zero-shot-no-grammar}
+      - {type: eval, config: aslg-pc12-baseline-few-shot, tag: aslg-pc12-baseline-few-shot}
+
+  - id: tier1-core
+    label: "Tier 1 — Nucleo (Finding 1)"
+    description: >-
+      sft-grpo/few-shot per prima: e' l'unica cella dove convergono i due bug
+      appena corretti (non completava mai il training; l'eval ignorava la
+      fase SFT). sft-grpo/zero-shot riusa il suo adapter SFT. Poi grpo/* e
+      sft/zero-shot da soli, per i riferimenti.
+    jobs:
+      - {type: train, config: aslg-pc12-sft-grpo-few-shot, tag: aslg-pc12-sft-grpo-few-shot}
+      - {type: eval, config: aslg-pc12-sft-grpo-few-shot, tag: aslg-pc12-sft-grpo-few-shot}
+      - {type: train, config: aslg-pc12-sft-grpo-zero-shot, tag: aslg-pc12-sft-grpo-zero-shot}
+      - {type: eval, config: aslg-pc12-sft-grpo-zero-shot, tag: aslg-pc12-sft-grpo-zero-shot}
+      - {type: train, config: aslg-pc12-grpo-zero-shot, tag: aslg-pc12-grpo-zero-shot}
+      - {type: eval, config: aslg-pc12-grpo-zero-shot, tag: aslg-pc12-grpo-zero-shot}
+      - {type: train, config: aslg-pc12-grpo-few-shot, tag: aslg-pc12-grpo-few-shot}
+      - {type: eval, config: aslg-pc12-grpo-few-shot, tag: aslg-pc12-grpo-few-shot}
+      - {type: train, config: aslg-pc12-sft-zero-shot, tag: aslg-pc12-sft-zero-shot}
+      - {type: eval, config: aslg-pc12-sft-zero-shot, tag: aslg-pc12-sft-zero-shot}
+
+  - id: tier2-highvalue
+    label: "Tier 2 — Alto rapporto informazione/costo"
+    description: >-
+      Il vincolo simbolico (no-grammar), l'ipotesi di collasso di varianza
+      (hot-rollout, riusa l'SFT del Tier 1), e le due loss ausiliarie SFT —
+      structured + il suo controllo GATE 2 (shuffled), e allowed-mass.
+    jobs:
+      - {type: train, config: aslg-pc12-ablations-decoding-no-grammar, tag: aslg-pc12-ablations-decoding-no-grammar}
+      - {type: eval, config: aslg-pc12-ablations-decoding-no-grammar, tag: aslg-pc12-ablations-decoding-no-grammar}
+      - {type: train, config: aslg-pc12-ablations-decoding-hot-rollout, tag: aslg-pc12-ablations-decoding-hot-rollout}
+      - {type: eval, config: aslg-pc12-ablations-decoding-hot-rollout, tag: aslg-pc12-ablations-decoding-hot-rollout}
+      - {type: train, config: aslg-pc12-ablations-objectives-sft-structured, tag: aslg-pc12-ablations-objectives-sft-structured}
+      - {type: eval, config: aslg-pc12-ablations-objectives-sft-structured, tag: aslg-pc12-ablations-objectives-sft-structured}
+      - {type: train, config: aslg-pc12-ablations-objectives-sft-structured-shuffled, tag: aslg-pc12-ablations-objectives-sft-structured-shuffled}
+      - {type: eval, config: aslg-pc12-ablations-objectives-sft-structured-shuffled, tag: aslg-pc12-ablations-objectives-sft-structured-shuffled}
+      - {type: train, config: aslg-pc12-ablations-objectives-sft-allowed-mass, tag: aslg-pc12-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: aslg-pc12-ablations-objectives-sft-allowed-mass, tag: aslg-pc12-ablations-objectives-sft-allowed-mass}
+
+  - id: tier3-rewards-loss
+    label: "Tier 3 — Reward e loss"
+    description: >-
+      Valore marginale piu' contenuto: edit-validity e lean-stack (riusa
+      l'SFT del Tier 1), dr-grpo, low-beta (idem).
+    jobs:
+      - {type: train, config: aslg-pc12-ablations-rewards-edit-validity, tag: aslg-pc12-ablations-rewards-edit-validity}
+      - {type: eval, config: aslg-pc12-ablations-rewards-edit-validity, tag: aslg-pc12-ablations-rewards-edit-validity}
+      - {type: train, config: aslg-pc12-ablations-rewards-lean-stack, tag: aslg-pc12-ablations-rewards-lean-stack}
+      - {type: eval, config: aslg-pc12-ablations-rewards-lean-stack, tag: aslg-pc12-ablations-rewards-lean-stack}
+      - {type: train, config: aslg-pc12-ablations-loss-dr-grpo, tag: aslg-pc12-ablations-loss-dr-grpo}
+      - {type: eval, config: aslg-pc12-ablations-loss-dr-grpo, tag: aslg-pc12-ablations-loss-dr-grpo}
+      - {type: train, config: aslg-pc12-ablations-loss-low-beta, tag: aslg-pc12-ablations-loss-low-beta}
+      - {type: eval, config: aslg-pc12-ablations-loss-low-beta, tag: aslg-pc12-ablations-loss-low-beta}
+
+  - id: tier4-glossary
+    label: "Tier 4 — Glossario (meccanismo nuovo)"
+    description: >-
+      Mai testato: iniezione del glossario di parole rare solo in training
+      (mai in eval), con dropout. zero-shot e few-shot.
+    jobs:
+      - {type: train, config: aslg-pc12-ablations-glossary-zero-shot, tag: aslg-pc12-ablations-glossary-zero-shot}
+      - {type: eval, config: aslg-pc12-ablations-glossary-zero-shot, tag: aslg-pc12-ablations-glossary-zero-shot}
+      - {type: train, config: aslg-pc12-ablations-glossary-few-shot, tag: aslg-pc12-ablations-glossary-few-shot}
+      - {type: eval, config: aslg-pc12-ablations-glossary-few-shot, tag: aslg-pc12-ablations-glossary-few-shot}
+
+  - id: leak-full-vocab-trie
+    label: "Ablazione — Trie sull'intero dataset (DATA LEAK)"
+    description: >-
+      Trie, reward di formato e validity costruiti su train+test invece che sul
+      solo train (dataset.vocab_source: all), gemello di grpo/few-shot. DATA
+      LEAK deliberato: misura quanto pesa il tetto del vocabolario chiuso di
+      train, mai un risultato. Tutti i dataset; ogni cella va confrontata con
+      la cella grpo da cui deriva nel proprio dataset (grpo/few-shot, o
+      grpo/zero-shot su WOS-46985).
+    jobs:
+      - {type: train, config: aslg-pc12-ablations-decoding-full-vocab-trie, tag: aslg-pc12-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: aslg-pc12-ablations-decoding-full-vocab-trie, tag: aslg-pc12-ablations-decoding-full-vocab-trie}
+      - {type: train, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+      - {type: train, config: wos-46985-ablations-decoding-full-vocab-trie, tag: wos-46985-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: wos-46985-ablations-decoding-full-vocab-trie, tag: wos-46985-ablations-decoding-full-vocab-trie}
+      - {type: train, config: conll-2003-ablations-decoding-full-vocab-trie, tag: conll-2003-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: conll-2003-ablations-decoding-full-vocab-trie, tag: conll-2003-ablations-decoding-full-vocab-trie}
+
+  - id: phoenix-core
+    label: "PHOENIX-2014T — celle rappresentative"
+    description: >-
+      Le celle della matrice ASLG-PC12 replicate su PHOENIX-2014T (tedesco ->
+      DGS), nello stesso ordine di riuso: baseline (cache del --compare), sft
+      (adapter riusato da sft-grpo), grpo, sft-grpo, no-grammar (few-shot e
+      zero-shot), massa ammessa. Richiede i
+      CSV ufficiali in data/phoenix-2014t/ sul cluster.
+    jobs:
+      - {type: eval, config: phoenix-2014t-baseline-zero-shot, tag: phoenix-2014t-baseline-zero-shot}
+      - {type: eval, config: phoenix-2014t-baseline-few-shot, tag: phoenix-2014t-baseline-few-shot}
+      - {type: eval, config: phoenix-2014t-baseline-zero-shot-no-grammar, tag: phoenix-2014t-baseline-zero-shot-no-grammar}
+      - {type: train, config: phoenix-2014t-sft-zero-shot, tag: phoenix-2014t-sft-zero-shot}
+      - {type: eval, config: phoenix-2014t-sft-zero-shot, tag: phoenix-2014t-sft-zero-shot}
+      - {type: train, config: phoenix-2014t-grpo-zero-shot, tag: phoenix-2014t-grpo-zero-shot}
+      - {type: eval, config: phoenix-2014t-grpo-zero-shot, tag: phoenix-2014t-grpo-zero-shot}
+      - {type: train, config: phoenix-2014t-grpo-few-shot, tag: phoenix-2014t-grpo-few-shot}
+      - {type: eval, config: phoenix-2014t-grpo-few-shot, tag: phoenix-2014t-grpo-few-shot}
+      - {type: train, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
+      - {type: eval, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
+      - {type: train, config: phoenix-2014t-sft-grpo-zero-shot, tag: phoenix-2014t-sft-grpo-zero-shot}
+      - {type: eval, config: phoenix-2014t-sft-grpo-zero-shot, tag: phoenix-2014t-sft-grpo-zero-shot}
+      - {type: train, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
+      - {type: train, config: phoenix-2014t-ablations-decoding-no-grammar-zero-shot, tag: phoenix-2014t-ablations-decoding-no-grammar-zero-shot}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-no-grammar-zero-shot, tag: phoenix-2014t-ablations-decoding-no-grammar-zero-shot}
+      - {type: train, config: phoenix-2014t-ablations-objectives-sft-allowed-mass, tag: phoenix-2014t-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: phoenix-2014t-ablations-objectives-sft-allowed-mass, tag: phoenix-2014t-ablations-objectives-sft-allowed-mass}
+
+  - id: grammarrl-tasks
+    label: "GrammarRL — WOS-46985 e CoNLL-2003"
+    description: >-
+      I due task non-gloss di GrammarRL (arXiv:2609.39869), linearizzati come
+      sequenze di token di un vocabolario chiuso: NER su CoNLL-2003 (celle come
+      PHOENIX-2014T) e classificazione gerarchica su WOS-46985 (solo
+      zero-shot). Richiede i file in data/conll-2003/ e data/wos-46985/.
+    jobs:
+      - {type: eval, config: conll-2003-baseline-zero-shot, tag: conll-2003-baseline-zero-shot}
+      - {type: eval, config: conll-2003-baseline-few-shot, tag: conll-2003-baseline-few-shot}
+      - {type: eval, config: conll-2003-baseline-zero-shot-no-grammar, tag: conll-2003-baseline-zero-shot-no-grammar}
+      - {type: train, config: conll-2003-sft-zero-shot, tag: conll-2003-sft-zero-shot}
+      - {type: eval, config: conll-2003-sft-zero-shot, tag: conll-2003-sft-zero-shot}
+      - {type: train, config: conll-2003-grpo-zero-shot, tag: conll-2003-grpo-zero-shot}
+      - {type: eval, config: conll-2003-grpo-zero-shot, tag: conll-2003-grpo-zero-shot}
+      - {type: train, config: conll-2003-grpo-few-shot, tag: conll-2003-grpo-few-shot}
+      - {type: eval, config: conll-2003-grpo-few-shot, tag: conll-2003-grpo-few-shot}
+      - {type: train, config: conll-2003-sft-grpo-few-shot, tag: conll-2003-sft-grpo-few-shot}
+      - {type: eval, config: conll-2003-sft-grpo-few-shot, tag: conll-2003-sft-grpo-few-shot}
+      - {type: train, config: conll-2003-sft-grpo-zero-shot, tag: conll-2003-sft-grpo-zero-shot}
+      - {type: eval, config: conll-2003-sft-grpo-zero-shot, tag: conll-2003-sft-grpo-zero-shot}
+      - {type: train, config: conll-2003-ablations-decoding-no-grammar, tag: conll-2003-ablations-decoding-no-grammar}
+      - {type: eval, config: conll-2003-ablations-decoding-no-grammar, tag: conll-2003-ablations-decoding-no-grammar}
+      - {type: train, config: conll-2003-ablations-decoding-no-grammar-zero-shot, tag: conll-2003-ablations-decoding-no-grammar-zero-shot}
+      - {type: eval, config: conll-2003-ablations-decoding-no-grammar-zero-shot, tag: conll-2003-ablations-decoding-no-grammar-zero-shot}
+      - {type: train, config: conll-2003-ablations-objectives-sft-allowed-mass, tag: conll-2003-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: conll-2003-ablations-objectives-sft-allowed-mass, tag: conll-2003-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: wos-46985-baseline-zero-shot, tag: wos-46985-baseline-zero-shot}
+      - {type: eval, config: wos-46985-baseline-zero-shot-no-grammar, tag: wos-46985-baseline-zero-shot-no-grammar}
+      - {type: train, config: wos-46985-sft-zero-shot, tag: wos-46985-sft-zero-shot}
+      - {type: eval, config: wos-46985-sft-zero-shot, tag: wos-46985-sft-zero-shot}
+      - {type: train, config: wos-46985-grpo-zero-shot, tag: wos-46985-grpo-zero-shot}
+      - {type: eval, config: wos-46985-grpo-zero-shot, tag: wos-46985-grpo-zero-shot}
+      - {type: train, config: wos-46985-sft-grpo-zero-shot, tag: wos-46985-sft-grpo-zero-shot}
+      - {type: eval, config: wos-46985-sft-grpo-zero-shot, tag: wos-46985-sft-grpo-zero-shot}
+      - {type: train, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}
+      - {type: eval, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}
+      - {type: train, config: wos-46985-ablations-objectives-sft-allowed-mass, tag: wos-46985-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: wos-46985-ablations-objectives-sft-allowed-mass, tag: wos-46985-ablations-objectives-sft-allowed-mass}
+
+  # ── Prossimi passi dopo la campagna CoNLL (2026-10) ─────────────────────
+  - id: next-entity-f1
+    label: "CoNLL — reward a entità tipate"
+    description: >-
+      GRPO dal modello base con F1 sulle entità tipate al posto di ROUGE-L e
+      BLEU (zero-shot e few-shot, ~6 h). Dice se il GRPO impara i tipi quando
+      la reward li distingue: oggi GRPO zero-shot trova gli span ma non i
+      tipi (exact match 0,03).
+    jobs:
+      - {type: train, config: conll-2003-ablations-rewards-entity-f1-zero-shot, tag: conll-2003-ablations-rewards-entity-f1-zero-shot}
+      - {type: eval, config: conll-2003-ablations-rewards-entity-f1-zero-shot, tag: conll-2003-ablations-rewards-entity-f1-zero-shot}
+      - {type: train, config: conll-2003-ablations-rewards-entity-f1, tag: conll-2003-ablations-rewards-entity-f1}
+      - {type: eval, config: conll-2003-ablations-rewards-entity-f1, tag: conll-2003-ablations-rewards-entity-f1}
+
+  - id: next-seeds
+    label: "Repliche a seme 1"
+    description: >-
+      SFT->GRPO zero-shot su CoNLL, WOS e PHOENIX (riusa la fase SFT
+      originale, cambia solo il seme del GRPO) e GRPO senza Trie few-shot su
+      PHOENIX. Dicono se il +2-4 punti di SFT->GRPO sull'SFT e la validity
+      0,99 senza Trie reggono a un altro seme. ~2-3 h l'una.
+    jobs:
+      - {type: train, config: conll-2003-seeds-sft-grpo-zero-shot-s1, tag: conll-2003-seeds-sft-grpo-zero-shot-s1}
+      - {type: eval, config: conll-2003-seeds-sft-grpo-zero-shot-s1, tag: conll-2003-seeds-sft-grpo-zero-shot-s1}
+      - {type: train, config: wos-46985-seeds-sft-grpo-zero-shot-s1, tag: wos-46985-seeds-sft-grpo-zero-shot-s1}
+      - {type: eval, config: wos-46985-seeds-sft-grpo-zero-shot-s1, tag: wos-46985-seeds-sft-grpo-zero-shot-s1}
+      - {type: train, config: phoenix-2014t-seeds-sft-grpo-zero-shot-s1, tag: phoenix-2014t-seeds-sft-grpo-zero-shot-s1}
+      - {type: eval, config: phoenix-2014t-seeds-sft-grpo-zero-shot-s1, tag: phoenix-2014t-seeds-sft-grpo-zero-shot-s1}
+      - {type: train, config: phoenix-2014t-seeds-no-grammar-s1, tag: phoenix-2014t-seeds-no-grammar-s1}
+      - {type: eval, config: phoenix-2014t-seeds-no-grammar-s1, tag: phoenix-2014t-seeds-no-grammar-s1}
+
+  - id: next-phoenix-leak
+    label: "PHOENIX — Trie su tutto il dataset (DATA LEAK)"
+    description: >-
+      Solo la cella PHOENIX del preset leak-full-vocab-trie: GRPO few-shot con
+      il vocabolario del Trie estratto anche dal test (~3 h). Misura quanto
+      costa il tetto del vocabolario di train su un corpus annotato da umani.
+    jobs:
+      - {type: train, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+
+  - id: next-phoenix-15b
+    label: "PHOENIX — Qwen2.5-1.5B"
+    description: >-
+      Le celle principali di PHOENIX con un modello 3x piu' grande (~20 h).
+      PRIMA scaricare i pesi sul cluster: bash cluster/setup.sh --models-only.
+      Con 0,5B l'exact match resta sotto il 3% ovunque.
+    jobs:
+      - {type: eval, config: phoenix-2014t-qwen25-15b-baseline-zero-shot, tag: phoenix-2014t-qwen25-15b-baseline-zero-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-baseline-few-shot, tag: phoenix-2014t-qwen25-15b-baseline-few-shot}
+      - {type: train, config: phoenix-2014t-qwen25-15b-sft-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-zero-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-sft-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-zero-shot}
+      - {type: train, config: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot}
+      - {type: train, config: phoenix-2014t-qwen25-15b-grpo-few-shot, tag: phoenix-2014t-qwen25-15b-grpo-few-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-grpo-few-shot, tag: phoenix-2014t-qwen25-15b-grpo-few-shot}

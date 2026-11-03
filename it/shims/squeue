@@ -1,0 +1,14 @@
+#!/bin/bash
+# Fake SLURM squeue: one optional active job kept in /tmp/fakeslurm/active as "ID|NAME|STATE".
+f=/tmp/fakeslurm/active
+[ -s "$f" ] || exit 0
+IFS='|' read -r id name state < "$f"
+fmt=""
+while [ $# -gt 0 ]; do
+    [ "$1" = "-o" ] && fmt="$2"
+    shift
+done
+fmt="${fmt//%A/$id}"
+fmt="${fmt//%j/$name}"
+fmt="${fmt//%T/$state}"
+echo "$fmt"

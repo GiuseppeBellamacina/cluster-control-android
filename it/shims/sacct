@@ -1,0 +1,6 @@
+#!/bin/bash
+# Fake SLURM sacct: every finished job completed fine.
+case "$*" in
+    *ExitCode*) echo "0:0" ;;
+    *State*) echo "COMPLETED" ;;
+esac

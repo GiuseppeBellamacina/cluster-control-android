@@ -1,0 +1,2 @@
+*.sh text eol=lf
+it/shims/* text eol=lf

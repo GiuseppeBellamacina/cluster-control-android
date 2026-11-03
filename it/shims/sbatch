@@ -1,0 +1,12 @@
+#!/bin/bash
+# Fake SLURM sbatch: allocates an id, makes it the active job, prints the id (--parsable).
+mkdir -p /tmp/fakeslurm
+n=$(cat /tmp/fakeslurm/counter 2>/dev/null || echo 1000)
+n=$((n + 1))
+echo "$n" > /tmp/fakeslurm/counter
+name="job"
+for a in "$@"; do
+    case "$a" in --job-name=*) name="${a#--job-name=}" ;; esac
+done
+echo "$n|$name|RUNNING" > /tmp/fakeslurm/active
+echo "$n"

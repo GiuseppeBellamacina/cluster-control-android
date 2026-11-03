@@ -8,6 +8,8 @@ param([Parameter(ValueFromRemainingArguments)][string[]]$GradleArgs)
 $ErrorActionPreference = "Stop"
 $image = "cc-android-build"
 $proj = $PSScriptRoot
+# CC_WORK isolates the /work volume so two builds can run in parallel (e.g. CC_WORK=sstp)
+$work = if ($Env:CC_WORK) { "cc-work-$($Env:CC_WORK)" } else { "cc-work" }
 New-Item -ItemType Directory -Force (Join-Path $proj "dist") | Out-Null
 
 docker image inspect $image *> $null
@@ -31,6 +33,6 @@ docker run --rm `
     -v "${proj}:/src:ro" `
     -v "${proj}\dist:/dist" `
     -v cc-gradle:/gradle-cache `
-    -v cc-work:/work `
+    -v "${work}:/work" `
     $image bash -c $script
 if ($LASTEXITCODE -ne 0) { throw "gradle failed (exit $LASTEXITCODE)" }

@@ -1,0 +1,3 @@
+#!/bin/bash
+# Fake SLURM scancel: the active job disappears.
+rm -f /tmp/fakeslurm/active
