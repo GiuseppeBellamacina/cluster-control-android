@@ -20,11 +20,14 @@ class SecureSettings(ctx: Context) {
         val d = AppSettings()
         fun s(k: String, def: String) = prefs.getString(k, def) ?: def
         return AppSettings(
-            host = s("host", d.host), user = s("user", d.user), port = prefs.getInt("port", d.port),
-            privateKey = s("privateKey", ""), publicKey = s("publicKey", ""), passphrase = s("passphrase", ""),
+            host = s("host", d.host).ifEmpty { Seed.sshHost.ifEmpty { d.host } },
+            user = s("user", d.user).ifEmpty { Seed.sshUser }, port = prefs.getInt("port", d.port),
+            privateKey = s("privateKey", "").ifEmpty { Seed.sshKey }, publicKey = s("publicKey", ""), passphrase = s("passphrase", ""),
             repo = s("repo", d.repo), branch = s("branch", d.branch), githubToken = s("githubToken", ""),
             transport = runCatching { TransportKind.valueOf(s("transport", d.transport.name)) }.getOrDefault(d.transport),
-            vpnHost = s("vpnHost", d.vpnHost), vpnUser = s("vpnUser", ""), vpnPassword = s("vpnPassword", ""),
+            vpnHost = s("vpnHost", d.vpnHost).ifEmpty { Seed.vpnHost.ifEmpty { d.vpnHost } },
+            vpnUser = s("vpnUser", "").ifEmpty { Seed.vpnUser },
+            vpnPassword = s("vpnPassword", "").ifEmpty { Seed.vpnPassword },
             includeSrc = prefs.getBoolean("includeSrc", false),
         )
     }

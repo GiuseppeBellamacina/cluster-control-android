@@ -1,3 +1,15 @@
+import java.util.Base64
+import java.util.Properties
+
+// Build-time defaults from the gitignored secrets.properties (values are base64): personal APK only, never commit it.
+val secrets = Properties().apply {
+    rootProject.file("secrets.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
+fun seed(key: String): String = secrets.getProperty(key)?.let { String(Base64.getDecoder().decode(it)) } ?: ""
+
+fun lit(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "").replace("\n", "\\n") + "\""
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,9 +26,16 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        for ((field, key) in listOf(
+            "SEED_VPN_HOST" to "vpnHost", "SEED_VPN_USER" to "vpnUser", "SEED_VPN_PASSWORD" to "vpnPassword",
+            "SEED_SSH_HOST" to "sshHost", "SEED_SSH_USER" to "sshUser", "SEED_SSH_KEY" to "sshKey",
+        )) buildConfigField("String", field, lit(seed(key)))
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
