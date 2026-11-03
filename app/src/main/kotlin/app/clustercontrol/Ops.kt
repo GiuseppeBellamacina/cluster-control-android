@@ -5,10 +5,11 @@ import app.clustercontrol.core.GithubFetcher
 import app.clustercontrol.core.HelperApi
 import app.clustercontrol.core.HelperMissingException
 import app.clustercontrol.core.ScheduleAction
-import app.clustercontrol.core.ScriptStatus
 import app.clustercontrol.core.Snapshot
 import app.clustercontrol.core.SshRemoteStore
 import app.clustercontrol.core.SyncEngine
+import app.clustercontrol.core.SyncManifest
+import app.clustercontrol.core.SyncStatus
 import app.clustercontrol.core.Transport
 
 enum class StepState { IDLE, RUNNING, OK, FAIL }
@@ -35,10 +36,12 @@ class ClusterOps(
         (snap.active?.let { "attivo ${it.name}" } ?: "nessun job attivo") + ", coda ${snap.queue.size}" +
             if (snap.stopped) ", in pausa" else ""
 
-    private fun syncScripts(session: ClusterSession): String {
-        val r = engine().apply(SshRemoteStore(session))
+    /** [leaveCodeAlone]: a job is running, so src/, main.py and pyproject.toml wait for a manual sync. */
+    private fun syncScripts(session: ClusterSession, leaveCodeAlone: Boolean = false): String {
+        val r = engine().apply(SshRemoteStore(session), skip = { leaveCodeAlone && SyncManifest.isCode(it) })
         if (r.errors.isNotEmpty()) throw ActionFailed("Sync: ${r.errors.size} errori (${r.errors.first()})")
-        return "Sync ok: ${r.updated.size} aggiornati su ${r.checked}"
+        val base = if (r.updated.isEmpty()) "Sync: tutto aggiornato" else "Sync: ${r.updated.size} file aggiornati"
+        return if (r.skipped.isEmpty()) base else "$base; ${r.skipped.size} di codice rimandati (job in corso)"
     }
 
     suspend fun run(action: ScheduleAction, source: String, auto: Boolean) = when (action) {
@@ -72,7 +75,7 @@ class ClusterOps(
     }
 
     suspend fun sync(source: String, auto: Boolean) =
-        recorder.record(Op.SYNC, source, auto) { live.exec(keep = !auto) { s, _ -> syncScripts(s) } }
+        recorder.record(Op.SYNC, source, auto) { live.exec(keep = !auto) { s, _ -> syncScripts(s, leaveCodeAlone = auto && stores.state.value.snapshot?.active != null) } }
 
     /** A queue / chain change: [block] returns the new snapshot; [ok] is the history text. */
     suspend fun mutate(op: Op, ok: String, block: (HelperApi) -> Snapshot) = recorder.record(op, "manuale", false) {
@@ -80,7 +83,7 @@ class ClusterOps(
         ok
     }
 
-    suspend fun scriptStatus(): List<ScriptStatus> = live.exec { s, _ -> engine().status(SshRemoteStore(s)) }
+    suspend fun syncStatus(): SyncStatus = live.exec { s, _ -> engine().status(SshRemoteStore(s)) }
 
     /** VPN -> SSH -> Cluster, stopping at the first failure; [onSteps] gets every intermediate state. */
     suspend fun testConnection(onSteps: (List<ConnStep>) -> Unit) = recorder.record(Op.TEST, "manuale", false) {

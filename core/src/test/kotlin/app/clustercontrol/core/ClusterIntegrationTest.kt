@@ -12,11 +12,11 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 /** Needs the CC_IT_* environment of integration.ps1 (throwaway sshd + real helper scripts + fake SLURM); skipped otherwise. */
 class ClusterIntegrationTest {
     private class DirFetcher(private val root: File) : SourceFetcher {
-        override fun tree(repo: String, branch: String): List<String> =
-            listOf("cluster").map { File(root, it) }
-                .filter { it.exists() }
-                .flatMap { it.walkTopDown().filter { f -> f.isFile } }
-                .map { it.relativeTo(root).invariantSeparatorsPath }
+        override fun entries(repo: String, branch: String): List<TreeEntry> =
+            (listOf("src", "cluster", "experiments/configs").map { File(root, it) }.filter { it.exists() }
+                .flatMap { it.walkTopDown().filter { f -> f.isFile } } +
+                listOf("main.py", "pyproject.toml").map { File(root, it) }.filter { it.isFile })
+                .map { TreeEntry(it.relativeTo(root).invariantSeparatorsPath, gitBlobSha(it.readBytes()), it.length()) }
 
         override fun fetch(repo: String, branch: String, path: String): ByteArray = File(root, path).readBytes()
     }
@@ -54,16 +54,17 @@ class ClusterIntegrationTest {
             // 1. empty cluster: the helper is missing
             assertFailsWith<HelperMissingException> { helper.status() }
 
-            // 2. sync installs scripts + helper + configs; a second run changes nothing
+            // 2. sync installs src + scripts + helper + configs; a second run changes nothing
             val engine = SyncEngine(DirFetcher(File(System.getenv("CC_IT_REPO_DIR"))), "owner/repo")
             val remote = SshRemoteStore(s)
             val first = engine.apply(remote)
             assertTrue(first.errors.isEmpty(), "sync errors: ${first.errors}")
-            assertTrue("cluster_helper.sh" in first.updated)
+            assertTrue("cluster/cluster_helper.sh" in first.updated)
+            assertTrue("src/training/grpo_t2g_train.py" in first.updated && "pyproject.toml" in first.updated)
+            assertTrue(first.updated.none { it.startsWith("experiments/results") || it.endsWith("presets.yaml") })
             assertEquals(0, s.exec("test -x ~/neuro_symbolic_t2g/cluster/cluster_helper.sh").rc)
             assertTrue(engine.apply(remote).updated.isEmpty())
-            // configs are not synced by the app (pre-push does it): the fake cluster just needs the file the chain checks
-            s.exec("mkdir -p ~/neuro_symbolic_t2g/experiments/configs/aslg-pc12/qwen25-05b/baseline && touch ~/neuro_symbolic_t2g/experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml")
+            assertTrue(engine.status(remote).upToDate)
 
             // 3. queue management
             val st = helper.status()

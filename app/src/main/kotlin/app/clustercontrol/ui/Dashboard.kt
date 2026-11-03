@@ -62,7 +62,7 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goScript:
             Header("Dashboard") { LinkStatus(ui, now) }
             ui.error?.let { e ->
                 when (e.kind) {
-                    ErrorKind.HELPER_MISSING -> Banner(e.message, "Script", goScript)
+                    ErrorKind.HELPER_MISSING -> Banner(e.message, "Sincronizza", goScript)
                     else -> Banner(e.message, if (ui.link == Link.OFFLINE) "Riprova" else null, actions::refresh)
                 }
             }

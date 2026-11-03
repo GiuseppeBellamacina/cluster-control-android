@@ -27,7 +27,12 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Log**: raw log of the active job.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum).
 - **Notifications**: a failed scheduled tick or sync, each job that ends (done or failed), and when every job is finished.
-- **More**: cluster scripts sync status, connection check (VPN, ssh, cluster), history of every operation.
+- **Sync**: keeps the cluster identical to the GitHub repo for what it needs to run (the `.py` files of `src/`, the `.sh`
+  scripts of `cluster/`, `experiments/configs/*.yaml`, `main.py`, `pyproject.toml`), the same set as `sync_cluster.ps1`.
+  It compares git blob ids (one tree request plus one command on the cluster, nothing is downloaded), shows only what
+  differs or "all up to date", and uploads only that. Results, figures and other files are never sent. Code files are not
+  touched by scheduled syncs while a job is running.
+- **More**: connection check (VPN, ssh, cluster), history of every operation.
 - While the app is open it keeps one tunnel and one ssh session alive and refreshes every few seconds;
   in the background it opens short-lived sessions only for scheduled runs.
 

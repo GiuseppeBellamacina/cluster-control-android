@@ -176,17 +176,25 @@ class SchedulesTest {
 }
 
 class SyncTest {
+    private fun entry(path: String, size: Long = 10) = TreeEntry(path, gitBlobSha(path.toByteArray()), size)
+
     private val files = mapOf(
-        "cluster/_lib.sh" to "lib".toByteArray(),
-        "cluster/train.sh" to "train".toByteArray(),
-        "remote/cluster_helper.sh" to "helper".toByteArray(),
-        "remote/app.py" to "driver".toByteArray(),
-        "experiments/configs/aslg-pc12/qwen25-05b/base.yaml" to "base".toByteArray(),
-        "src/x.py" to "x".toByteArray(),
-        "README.md" to "r".toByteArray(),
-    )
+        "cluster/_lib.sh" to "lib",
+        "cluster/train.sh" to "train",
+        "cluster/presets.yaml" to "presets",
+        "src/a.py" to "a",
+        "src/data/words.json" to "w",
+        "src/__pycache__/a.py" to "c",
+        "experiments/configs/x/base.yaml" to "base",
+        "experiments/results/x/run/eval_final.json" to "r",
+        "experiments/figures/f.png" to "f",
+        "main.py" to "main",
+        "pyproject.toml" to "pp",
+        "README.md" to "readme",
+    ).mapValues { it.value.toByteArray() }
+
     private val fetcher = object : SourceFetcher {
-        override fun tree(repo: String, branch: String) = files.keys.toList()
+        override fun entries(repo: String, branch: String) = files.map { (p, b) -> TreeEntry(p, gitBlobSha(b), b.size.toLong()) }
         override fun fetch(repo: String, branch: String, path: String) = files.getValue(path)
     }
 
@@ -194,36 +202,68 @@ class SyncTest {
         val store = mutableMapOf<String, ByteArray>()
         val modes = mutableMapOf<String, Boolean>()
 
-        override fun hashes(relPaths: List<String>) = relPaths.associateWith { p ->
-            store[p]?.let { MessageDigest.getInstance("SHA-256").digest(it).joinToString("") { b -> "%02x".format(b) } }
-        }
+        override fun blobShas(relPaths: List<String>) = relPaths.associateWith { store[it]?.let(::gitBlobSha) }
 
-        override fun put(relPath: String, bytes: ByteArray, executable: Boolean) {
-            store[relPath] = bytes
-            modes[relPath] = executable
+        override fun putAll(files: List<RemoteFile>) = files.forEach {
+            store[it.relPath] = it.bytes
+            modes[it.relPath] = it.executable
         }
     }
 
     @Test
-    fun manifestSelectsOnlyTheClusterScripts() {
-        val items = SyncManifest.items(files.keys.toList())
-        assertEquals(listOf("cluster/_lib.sh", "cluster/train.sh"), items.map { it.remotePath })
-        assertTrue(items.all { it.executable })
+    fun gitBlobShaMatchesGit() {
+        // `printf 'hello\n' | git hash-object --stdin`
+        assertEquals("ce013625030ba8dba906f756967f9e9ca394464a", gitBlobSha("hello\n".toByteArray()))
+    }
+
+    @Test
+    fun manifestIsAnAllowList() {
+        val items = SyncManifest.items(fetcher.entries("o/r", "main"))
+        assertEquals(
+            listOf("cluster/_lib.sh", "cluster/train.sh", "experiments/configs/x/base.yaml", "main.py", "pyproject.toml", "src/a.py"),
+            items.map { it.path },
+        )
+        assertEquals(listOf(true, true, false, false, false, false), items.map { it.executable })
+        // never results, figures, app-only presets, docs, caches or oversized files
+        val big = SyncManifest.items(listOf(entry("src/huge.py", 600_000), entry("experiments/configs/a.yaml")))
+        assertEquals(listOf("experiments/configs/a.yaml"), big.map { it.path })
+    }
+
+    @Test
+    fun statusListsOnlyWhatDiffers() {
+        val remote = FakeRemote()
+        val engine = SyncEngine(fetcher, "o/r")
+        val first = engine.status(remote)
+        assertEquals(6, first.checked)
+        assertTrue(first.changes.all { it.isNew } && first.changes.size == 6)
+        engine.apply(remote)
+        assertTrue(engine.status(remote).upToDate)
+        remote.store["cluster/train.sh"] = "stale".toByteArray()
+        assertEquals(listOf(SyncChange("cluster/train.sh", isNew = false)), engine.status(remote).changes)
+    }
+
+    @Test
+    fun syncCanLeaveTheRunningCodeAlone() {
+        val remote = FakeRemote()
+        val r = SyncEngine(fetcher, "o/r").apply(remote, skip = SyncManifest::isCode)
+        assertEquals(listOf("cluster/_lib.sh", "cluster/train.sh", "experiments/configs/x/base.yaml"), r.updated)
+        assertEquals(listOf("main.py", "pyproject.toml", "src/a.py"), r.skipped)
+        assertTrue("src/a.py" !in remote.store)
     }
 
     @Test
     fun syncIsIdempotentAndUploadsOnlyChanges() {
         val remote = FakeRemote()
         val engine = SyncEngine(fetcher, "o/r")
-        assertEquals(listOf(false, false), engine.status(remote).map { it.upToDate })
         val first = engine.apply(remote)
-        assertEquals(listOf("_lib.sh", "train.sh"), first.updated)
+        assertEquals(6, first.updated.size)
+        assertTrue(first.errors.isEmpty())
         assertEquals(true, remote.modes["cluster/train.sh"])
+        assertEquals(false, remote.modes["src/a.py"])
+        assertTrue("experiments/results/x/run/eval_final.json" !in remote.store && "README.md" !in remote.store)
         assertTrue(engine.apply(remote).updated.isEmpty())
-        assertEquals(listOf(true, true), engine.status(remote).map { it.upToDate })
-        remote.store["cluster/train.sh"] = "stale".toByteArray()
-        assertEquals(listOf(false), engine.status(remote).filter { !it.upToDate }.map { it.upToDate })
-        assertEquals(listOf("train.sh"), engine.apply(remote).updated)
+        remote.store["src/a.py"] = "stale".toByteArray()
+        assertEquals(listOf("src/a.py"), engine.apply(remote).updated)
     }
 }
 

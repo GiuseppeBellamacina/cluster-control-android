@@ -10,7 +10,7 @@ import app.clustercontrol.core.JobEntry
 import app.clustercontrol.core.Point
 import app.clustercontrol.core.Preset
 import app.clustercontrol.core.Schedule
-import app.clustercontrol.core.ScriptStatus
+import app.clustercontrol.core.SyncStatus
 import app.clustercontrol.core.Snapshot
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.buildEntry
@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-data class ScriptsUi(val items: List<ScriptStatus>? = null, val busy: Boolean = false, val result: String? = null)
+data class ScriptsUi(val status: SyncStatus? = null, val busy: Boolean = false, val result: String? = null)
 
 data class ConnUi(val steps: List<ConnStep> = emptyList(), val running: Boolean = false)
 
@@ -278,9 +278,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
     override fun checkScripts() {
         viewModelScope.launch {
             local.update { it.copy(scripts = it.scripts.copy(busy = true, result = null)) }
-            val r = runCatching { g.ops.scriptStatus() }
+            val r = runCatching { g.ops.syncStatus() }
             local.update {
-                it.copy(scripts = ScriptsUi(r.getOrNull() ?: it.scripts.items, false, r.exceptionOrNull()?.let { e -> classify(e).message }))
+                it.copy(scripts = ScriptsUi(r.getOrNull() ?: it.scripts.status, false, r.exceptionOrNull()?.let { e -> classify(e).message }))
             }
         }
     }
@@ -289,8 +289,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         viewModelScope.launch {
             local.update { it.copy(scripts = it.scripts.copy(busy = true, result = null)) }
             val e = g.ops.sync("manuale", false)
-            val items = runCatching { g.ops.scriptStatus() }.getOrNull()
-            local.update { it.copy(scripts = ScriptsUi(items ?: it.scripts.items, false, e.message)) }
+            val items = runCatching { g.ops.syncStatus() }.getOrNull()
+            local.update { it.copy(scripts = ScriptsUi(items ?: it.scripts.status, false, e.message)) }
         }
     }
 

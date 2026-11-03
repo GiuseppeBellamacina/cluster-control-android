@@ -35,9 +35,10 @@ import app.clustercontrol.Op
 import app.clustercontrol.Seed
 import app.clustercontrol.StepState
 import app.clustercontrol.UiState
+import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.formatAgo
 
-val MORE_SECTIONS = listOf("Script", "Connessione", "Storico")
+val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico")
 
 @Composable
 fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> Unit, modifier: Modifier) {
@@ -60,7 +61,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
         }
         Header(sub) { LinkText("‹ Altro") { open(null) } }
         when (sub) {
-            "Script" -> ScriptSection(ui, actions)
+            "Sincronizza" -> SyncSection(ui, actions)
             "Connessione" -> ConnectionSection(ui, actions)
             else -> HistorySection(ui, actions)
         }
@@ -68,26 +69,43 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
 }
 
 @Composable
-private fun ScriptSection(ui: UiState, actions: Actions) {
+private fun SyncSection(ui: UiState, actions: Actions) {
     LaunchedEffect(Unit) { actions.checkScripts() }
     val s = ui.scripts
+    val st = s.status
     ListCard {
-        val items = s.items
-        if (items == null) {
-            ListRow { Caption(if (s.busy) "Controllo..." else "Nessun dato") }
-        } else {
-            items.forEachIndexed { i, it ->
-                if (i > 0) Sep()
-                ListRow {
-                    Text(it.name, Modifier.weight(1f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (it.upToDate) Chip("aggiornato", Tone.GREEN) else Chip("da aggiornare", Tone.BLUE)
+        when {
+            st == null -> ListRow { Caption(if (s.busy) "Controllo..." else "Nessun dato") }
+            st.upToDate -> ListRow {
+                Icon(Icons.Default.CheckCircle, null, Modifier.size(22.dp), tint = C.Green)
+                Text("Tutto aggiornato", Modifier.weight(1f), fontSize = 15.sp)
+            }
+            else -> {
+                st.changes.take(MAX_SHOWN).forEachIndexed { i, c ->
+                    if (i > 0) Sep()
+                    ListRow {
+                        Text(c.path, Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Chip(if (c.isNew) "nuovo" else "modificato", Tone.BLUE)
+                    }
+                }
+                if (st.changes.size > MAX_SHOWN) {
+                    Sep()
+                    ListRow { Caption("+ ${st.changes.size - MAX_SHOWN} altri file") }
                 }
             }
         }
     }
-    Btn("Aggiorna", actions::updateScripts, Modifier.fillMaxWidth(), busy = s.busy)
+    val codeWhileRunning = ui.snapshot?.active != null && st?.changes?.any { SyncManifest.isCode(it.path) } == true
+    if (codeWhileRunning) Caption("Job in corso: aggiornare src/ cambia il codice mentre gira.")
+    if (st != null && !st.upToDate) {
+        Btn(if (codeWhileRunning) "Aggiorna comunque (${st.changes.size})" else "Aggiorna ${st.changes.size} file", actions::updateScripts, Modifier.fillMaxWidth(), busy = s.busy)
+    } else {
+        Btn("Ricontrolla", actions::checkScripts, Modifier.fillMaxWidth(), busy = s.busy)
+    }
     s.result?.let { Caption(it) }
 }
+
+private const val MAX_SHOWN = 8
 
 @Composable
 private fun ConnectionSection(ui: UiState, actions: Actions) {

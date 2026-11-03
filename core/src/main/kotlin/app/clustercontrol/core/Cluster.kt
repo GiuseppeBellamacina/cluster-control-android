@@ -39,6 +39,8 @@ data class ClusterConfig(
     val remoteRoot: String = "~/neuro_symbolic_t2g",
 )
 
+class RemoteFile(val relPath: String, val bytes: ByteArray, val executable: Boolean)
+
 data class ExecResult(val rc: Int, val stdout: String, val stderr: String)
 
 /** One ssh connection, reused for every command of an action (tick, sync, ...). */
@@ -64,15 +66,23 @@ class ClusterSession private constructor(
     }
 
     /** Uploads [bytes] to [relPath] (relative to the remote home); creates directories, sets the mode. */
-    fun put(relPath: String, bytes: ByteArray, executable: Boolean = false) {
+    fun put(relPath: String, bytes: ByteArray, executable: Boolean = false) =
+        putAll(listOf(RemoteFile(relPath, bytes, executable)))
+
+    /** Many files over ONE sftp channel. */
+    fun putAll(files: List<RemoteFile>) {
+        if (files.isEmpty()) return
         val sftp = session.openChannel("sftp") as ChannelSftp
         sftp.connect(timeoutMs)
         try {
-            relPath.substringBeforeLast('/', "").split('/').filter { it.isNotEmpty() }
-                .runningReduce { acc, s -> "$acc/$s" }
-                .forEach { dir -> runCatching { sftp.mkdir(dir) } } // exists already: fine
-            sftp.put(ByteArrayInputStream(bytes), relPath)
-            sftp.chmod(if (executable) 0b111_101_101 else 0b110_100_100, relPath)
+            val made = HashSet<String>()
+            for (f in files) {
+                f.relPath.substringBeforeLast('/', "").split('/').filter { it.isNotEmpty() }
+                    .runningReduce { acc, s -> "$acc/$s" }
+                    .forEach { dir -> if (made.add(dir)) runCatching { sftp.mkdir(dir) } } // exists already: fine
+                sftp.put(ByteArrayInputStream(f.bytes), f.relPath)
+                sftp.chmod(if (f.executable) 0b111_101_101 else 0b110_100_100, f.relPath)
+            }
         } finally {
             sftp.disconnect()
         }

@@ -3,7 +3,10 @@ package app.clustercontrol.sstp
 import app.clustercontrol.core.ClusterConfig
 import app.clustercontrol.core.ClusterSession
 import app.clustercontrol.core.HelperApi
+import app.clustercontrol.core.GithubFetcher
 import app.clustercontrol.core.HostKeys
+import app.clustercontrol.core.SshRemoteStore
+import app.clustercontrol.core.SyncEngine
 import app.clustercontrol.core.Transport
 import java.io.File
 import java.net.Socket
@@ -34,6 +37,10 @@ fun main() {
             println("ssh: authenticated, echo -> " + s.exec("echo ok").stdout.trim())
             val snap = HelperApi(s).status()
             println("helper status: active=${snap.active != null} queue=${snap.queue.size} stopped=${snap.stopped}")
+            // read-only: compares the repo on GitHub with the cluster, uploads nothing
+            val sync = SyncEngine(GithubFetcher(), "GiuseppeBellamacina/neuro_symbolic_t2g").status(SshRemoteStore(s))
+            println("sync: compared ${sync.checked} files, ${sync.changes.size} to update (${sync.changes.count { it.isNew }} new)")
+            sync.changes.take(12).forEach { println("  ${if (it.isNew) "new     " else "modified"} ${it.path}") }
         }
     } catch (e: Exception) {
         println("FAILED: ${e::class.simpleName}: ${e.message?.take(200)}")
