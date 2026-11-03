@@ -28,6 +28,16 @@ class ClusterIntegrationTest {
     }
 
     @Test
+    fun generatedKeyAuthenticates() {
+        val host = System.getenv("CC_IT_HOST")
+        assumeTrue(host != null, "CC_IT_HOST not set: integration test skipped")
+        val key = KeyGen.generate("cc-it")
+        File(System.getenv("CC_IT_AUTHORIZED_KEYS")).appendText("\n" + key.publicKeyLine + "\n")
+        val cfg = ClusterConfig(host, System.getenv("CC_IT_USER"), key.privateKeyPem, port = System.getenv("CC_IT_PORT").toInt())
+        ClusterSession.open(cfg, DirectTransport, memoryKeys).use { assertEquals(0, it.exec("true").rc) }
+    }
+
+    @Test
     fun fullClusterFlow() {
         val host = System.getenv("CC_IT_HOST")
         assumeTrue(host != null, "CC_IT_HOST not set: integration test skipped")
