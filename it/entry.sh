@@ -8,7 +8,7 @@ install -m 600 -o tester -g tester /tmp/it_key.pub /home/tester/.ssh/authorized_
 
 rsync -a --delete --exclude build --exclude .gradle --exclude .kotlin --exclude dist --exclude .git /src/ /work/
 cd /work
-export CC_IT_HOST=127.0.0.1 CC_IT_PORT=2222 CC_IT_USER=tester CC_IT_KEY_FILE=/tmp/it_key CC_IT_REPO_DIR=/t2g
+export CC_IT_AUTHORIZED_KEYS=/home/tester/.ssh/authorized_keys CC_IT_HOST=127.0.0.1 CC_IT_PORT=2222 CC_IT_USER=tester CC_IT_KEY_FILE=/tmp/it_key CC_IT_REPO_DIR=/t2g
 set +e
 gradle --no-daemon --console=plain :core:test --tests '*ClusterIntegrationTest*' -i > /tmp/it.log 2>&1
 rc=$?
