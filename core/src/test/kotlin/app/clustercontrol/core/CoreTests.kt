@@ -63,6 +63,15 @@ class ProtocolTest {
 
 class LogParsingTest {
     @Test
+    fun etaSeconds() {
+        assertEquals(3723L, parseEtaSeconds("1:02:03"))
+        assertEquals(754L, parseEtaSeconds("12:34"))
+        assertNull(parseEtaSeconds("?"))
+        assertNull(parseEtaSeconds("00:??"))
+        assertNull(parseEtaSeconds(null))
+    }
+
+    @Test
     fun trainingProgress() {
         val log = """
             [stage 1] steps=1000

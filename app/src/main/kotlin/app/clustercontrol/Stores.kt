@@ -3,12 +3,14 @@ package app.clustercontrol
 import app.clustercontrol.core.Schedule
 import app.clustercontrol.core.ScheduleAction
 import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-/** Schedules, history and state as small JSON files (nothing secret in here). One instance per process. */
+/** Schedules, history, state and cached GitHub data as small files (nothing secret in here). One instance per process. */
 class Stores(private val dir: File) {
     private fun read(name: String) = runCatching { Json.parseToJsonElement(File(dir, name).readText()) }.getOrNull()
 
@@ -18,34 +20,61 @@ class Stores(private val dir: File) {
         tmp.renameTo(File(dir, name))
     }
 
-    @Synchronized
-    fun schedules(): List<Schedule> =
-        read("schedules.json")?.let { e -> runCatching { e.jsonArray.map { scheduleFromJson(it.jsonObject) } }.getOrNull() }
-            ?: SEED.also { saveSchedules(it) }
+    private val _state = MutableStateFlow(
+        read("state.json")?.let { e -> runCatching { stateFromJson(e.jsonObject) }.getOrNull() } ?: AppState(),
+    )
+    val state: StateFlow<AppState> = _state
+
+    private val _history = MutableStateFlow(
+        read("history.json")?.let { e -> runCatching { e.jsonArray.map { historyFromJson(it.jsonObject) } }.getOrNull() }.orEmpty(),
+    )
+    val history: StateFlow<List<HistoryEntry>> = _history
+
+    private val _schedules = MutableStateFlow(loadSchedules())
+    val schedules: StateFlow<List<Schedule>> = _schedules
+
+    /** Old installs keep schedules that were both off: reseed the defaults once per [SCHEDULES_VERSION]. */
+    private fun loadSchedules(): List<Schedule> {
+        val stored = read("schedules.json")?.let { e -> runCatching { e.jsonArray.map { scheduleFromJson(it.jsonObject) } }.getOrNull() }
+        if (stored != null && _state.value.schedulesVersion >= SCHEDULES_VERSION) return stored
+        write("schedules.json", JsonArray(SEED.map { it.toJson() }).toString())
+        updateState { it.copy(schedulesVersion = SCHEDULES_VERSION) }
+        return SEED
+    }
 
     @Synchronized
-    fun saveSchedules(list: List<Schedule>) = write("schedules.json", JsonArray(list.map { it.toJson() }).toString())
-
-    @Synchronized
-    fun history(): List<HistoryEntry> =
-        read("history.json")?.let { e -> runCatching { e.jsonArray.map { historyFromJson(it.jsonObject) } }.getOrNull() }.orEmpty()
+    fun saveSchedules(list: List<Schedule>) {
+        write("schedules.json", JsonArray(list.map { it.toJson() }).toString())
+        _schedules.value = list
+    }
 
     /** Newest first, capped at [HISTORY_MAX]. */
     @Synchronized
-    fun addHistory(entry: HistoryEntry) =
-        write("history.json", JsonArray((listOf(entry) + history()).take(HISTORY_MAX).map { it.toJson() }).toString())
+    fun addHistory(entry: HistoryEntry) = saveHistory((listOf(entry) + _history.value).take(HISTORY_MAX))
 
     @Synchronized
-    fun state(): AppState =
-        read("state.json")?.let { e -> runCatching { stateFromJson(e.jsonObject) }.getOrNull() } ?: AppState()
+    fun clearHistory() = saveHistory(emptyList())
+
+    private fun saveHistory(list: List<HistoryEntry>) {
+        write("history.json", JsonArray(list.map { it.toJson() }).toString())
+        _history.value = list
+    }
 
     @Synchronized
-    fun updateState(f: (AppState) -> AppState): AppState = f(state()).also { write("state.json", it.toJson().toString()) }
+    fun updateState(f: (AppState) -> AppState): AppState = f(_state.value).also {
+        write("state.json", it.toJson().toString())
+        _state.value = it
+    }
+
+    fun cached(name: String): String? = runCatching { File(dir, name).readText() }.getOrNull()
+
+    fun cache(name: String, text: String) = write(name, text)
 
     companion object {
-        const val HISTORY_MAX = 100
+        const val HISTORY_MAX = 200
+        const val SCHEDULES_VERSION = 2
         val SEED = listOf(
-            Schedule("tick-60", "Tick ogni 60 min", ScheduleAction.TICK, 60, enabled = false),
+            Schedule("tick-60", "Tick ogni 60 min", ScheduleAction.TICK, 60, enabled = true),
             Schedule("sync-24h", "Sync script ogni 24 h", ScheduleAction.SYNC, 1440, enabled = false),
         )
     }

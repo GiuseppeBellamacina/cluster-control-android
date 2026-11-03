@@ -1,7 +1,7 @@
 package app.clustercontrol
 
 import app.clustercontrol.core.Schedule
-import app.clustercontrol.core.ScheduleAction
+import kotlinx.coroutines.CancellationException
 
 fun interface Notifier {
     fun notify(id: Int, title: String, text: String)
@@ -13,13 +13,13 @@ object NoticeIds {
     const val CHAIN = 3
 }
 
-/** Which schedules WorkManager should be running: one slot per enabled schedule, none while suspended or switched off. */
+/** Which schedules WorkManager should be running: one slot per enabled schedule, none while suspended. */
 fun desiredWork(schedules: List<Schedule>, state: AppState): List<Schedule> =
-    if (!state.master || state.autoSuspended) emptyList() else schedules.filter { it.enabled }
+    if (state.autoSuspended) emptyList() else schedules.filter { it.enabled }
 
 /**
- * Runs one action body and records its outcome. One attempt only: failures never throw out of here (so a worker
- * returns success and there is no retry loop) and an authentication failure trips the circuit breaker.
+ * The one place every operation is recorded in the history. One attempt only: failures never throw out of here
+ * (so a worker returns success and there is no retry loop) and an authentication failure trips the circuit breaker.
  */
 class Recorder(
     private val stores: Stores,
@@ -31,7 +31,7 @@ class Recorder(
     fun handleFailure(e: Throwable): ClusterError {
         val err = classify(e)
         if (err.kind == ErrorKind.AUTH) {
-            val first = !stores.state().autoSuspended
+            val first = !stores.state.value.autoSuspended
             stores.updateState { it.copy(autoSuspended = true, suspendReason = err.message) }
             if (first) {
                 notifier.notify(NoticeIds.SUSPENDED, "Automatismi sospesi", err.message)
@@ -41,16 +41,18 @@ class Recorder(
         return err
     }
 
-    fun record(action: ScheduleAction, source: String, auto: Boolean, body: () -> String): HistoryEntry {
+    suspend fun record(op: Op, source: String, auto: Boolean, body: suspend () -> String): HistoryEntry {
         val t0 = clock()
         val (ok, message) = try {
             true to body()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false to handleFailure(e).message
         }
-        val entry = HistoryEntry(t0, source, action.name, ok, message.take(300), clock() - t0)
+        val entry = HistoryEntry(t0, source, op.name, ok, message.take(300), clock() - t0)
         stores.addHistory(entry)
-        if (!ok && auto) notifier.notify(NoticeIds.FAILURE, "$source: ${action.name} fallito", message)
+        if (!ok && auto) notifier.notify(NoticeIds.FAILURE, "$source: ${op.label} fallito", message)
         return entry
     }
 }

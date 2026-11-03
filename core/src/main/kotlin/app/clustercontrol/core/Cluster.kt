@@ -81,7 +81,14 @@ class ClusterSession private constructor(
     override fun close() = session.disconnect()
 
     companion object {
-        fun open(cfg: ClusterConfig, transport: Transport, hostKeys: HostKeys, timeoutMs: Int = 30_000): ClusterSession {
+        /** [serverAliveIntervalMs] > 0 sends ssh keepalives, so a long-lived session notices a dead link. */
+        fun open(
+            cfg: ClusterConfig,
+            transport: Transport,
+            hostKeys: HostKeys,
+            timeoutMs: Int = 30_000,
+            serverAliveIntervalMs: Int = 0,
+        ): ClusterSession {
             val jsch = JSch()
             jsch.addIdentity("cluster", cfg.privateKeyPem.toByteArray(), null, cfg.passphrase?.toByteArray())
             val s = jsch.getSession(cfg.user, cfg.host, cfg.port)
@@ -93,6 +100,10 @@ class ClusterSession private constructor(
                 override fun getOutputStream(socket: Socket): OutputStream = socket.getOutputStream()
             })
             s.timeout = timeoutMs
+            if (serverAliveIntervalMs > 0) {
+                s.serverAliveInterval = serverAliveIntervalMs
+                s.serverAliveCountMax = 2
+            }
             s.connect(timeoutMs)
             val fp = s.hostKey.getFingerPrint(jsch)
             val known = hostKeys.get(cfg.host)

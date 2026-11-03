@@ -1,137 +1,126 @@
 package app.clustercontrol
 
-import app.clustercontrol.core.ClusterConfig
 import app.clustercontrol.core.ClusterSession
-import app.clustercontrol.core.DirectTransport
 import app.clustercontrol.core.GithubFetcher
 import app.clustercontrol.core.HelperApi
 import app.clustercontrol.core.HelperMissingException
-import app.clustercontrol.core.HostKeys
 import app.clustercontrol.core.ScheduleAction
+import app.clustercontrol.core.ScriptStatus
 import app.clustercontrol.core.Snapshot
 import app.clustercontrol.core.SshRemoteStore
 import app.clustercontrol.core.SyncEngine
-import app.clustercontrol.core.SyncItem
-import app.clustercontrol.core.SyncOptions
 import app.clustercontrol.core.Transport
 import app.clustercontrol.core.diffSnapshots
-import app.clustercontrol.sstp.SstpTransport
-import java.net.InetAddress
 
-/** Seam for the transport: DIRECT is the system network; SSTP is wired in later. */
-fun interface TransportProvider {
-    /** [onStage] receives the SSTP handshake stages (never secrets). */
-    fun get(settings: AppSettings, onStage: (String, String) -> Unit): Transport
-}
+enum class StepState { IDLE, RUNNING, OK, FAIL }
 
-object DefaultTransportProvider : TransportProvider {
-    override fun get(settings: AppSettings, onStage: (String, String) -> Unit): Transport = when (settings.transport) {
-        TransportKind.DIRECT -> DirectTransport
-        TransportKind.SSTP -> {
-            val sstp = SstpTransport(settings.vpnHost.trim(), settings.vpnUser.trim(), settings.vpnPassword, onStage = onStage)
-            object : Transport {
-                override fun open(host: String, port: Int, timeoutMs: Int): java.net.Socket = sstp.openSocket(host, port)
-            }
-        }
-    }
-}
+data class ConnStep(val name: String, val state: StepState = StepState.IDLE, val ms: Long? = null, val error: String? = null)
 
-/** Every blocking cluster interaction of the app; call from a background thread only. */
+/** Every cluster interaction of the app, each recorded in the history. Scheduled runs pass `auto = true`. */
 class ClusterOps(
-    private val settings: () -> AppSettings,
+    private val live: LiveSession,
+    private val connector: Connector,
     private val stores: Stores,
-    private val transports: TransportProvider,
-    private val hostKeys: HostKeys,
     private val notifier: Notifier,
-    onSuspended: () -> Unit,
+    private val recorder: Recorder,
 ) {
-    private val recorder = Recorder(stores, notifier, onSuspended)
-
-    fun handleFailure(e: Throwable) = recorder.handleFailure(e)
-
-    fun <T> withCluster(block: (ClusterSession, HelperApi) -> T): T {
-        val s = settings()
-        if (!s.configured) throw ConfigMissingException(s.missing)
-        val cfg = ClusterConfig(s.host.trim(), s.user.trim(), s.privateKey, s.passphrase.ifBlank { null }, s.port)
-        return ClusterSession.open(cfg, transports.get(s) { _, _ -> }, hostKeys).use { block(it, HelperApi(it)) }
-    }
+    private fun engine() = SyncEngine(GithubFetcher(), Seed.REPO, Seed.BRANCH)
 
     /** Persists [snap] as the latest known state; [notify] raises local notifications for what changed since the previous one. */
-    fun storeSnapshot(snap: Snapshot, notify: Boolean) {
-        val prev = stores.state().snapshot
-        stores.updateState { it.copy(snapshot = snap, snapshotAt = System.currentTimeMillis()) }
+    private fun storeSnapshot(snap: Snapshot, notify: Boolean) {
+        val prev = stores.state.value.snapshot
         if (notify) diffSnapshots(prev, snap).forEach { notifier.notify(NoticeIds.CHAIN, "ClusterControl", it.message) }
+        live.publish(snap)
     }
 
-    fun mutate(block: (HelperApi) -> Snapshot) = withCluster { _, h -> storeSnapshot(block(h), false) }
-
-    fun refresh() = mutate { it.monitor(200) }
-
-    private fun engine(s: AppSettings) = SyncEngine(GithubFetcher(s.githubToken.ifBlank { null }), s.repo.trim(), s.branch.trim())
-
-    fun syncPlan(): List<SyncItem> = withCluster { session, _ ->
-        val s = settings()
-        engine(s).plan(SshRemoteStore(session), SyncOptions(s.includeSrc))
-    }
-
-    private fun sync(session: ClusterSession): String {
-        val s = settings()
-        val r = engine(s).apply(SshRemoteStore(session), SyncOptions(s.includeSrc))
-        if (r.errors.isNotEmpty()) throw ActionFailed("Sync: ${r.errors.size} errori (${r.errors.first()})")
-        return "Sync ok: ${r.updated.size} aggiornati su ${r.checked}"
-    }
+    /** [block] followed by a fresh monitor, so the log and progress are current right after the change. */
+    private suspend fun mutating(auto: Boolean, block: (ClusterSession, HelperApi) -> Snapshot): Snapshot =
+        live.exec(keep = !auto) { s, h ->
+            val r = block(s, h)
+            runCatching { h.monitor(LiveSession.MONITOR_LINES) }.getOrDefault(r)
+        }
 
     private fun describe(snap: Snapshot) =
         (snap.active?.let { "attivo ${it.name}" } ?: "nessun job attivo") + ", coda ${snap.queue.size}" +
             if (snap.stopped) ", in pausa" else ""
 
-    fun runAction(action: ScheduleAction, source: String, auto: Boolean): HistoryEntry =
-        recorder.record(action, source, auto) {
-            withCluster { session, helper ->
-                when (action) {
-                    ScheduleAction.TICK -> {
-                        var prefix = ""
-                        val r = try {
-                            helper.tick()
-                        } catch (e: HelperMissingException) {
-                            prefix = sync(session) + "; "
-                            helper.tick()
-                        }
-                        storeSnapshot(r.snapshot, auto)
-                        if (r.tickFailed) throw ActionFailed("Tick fallito sul cluster (${describe(r.snapshot)})")
-                        prefix + "Tick ok: " + describe(r.snapshot)
-                    }
-                    ScheduleAction.SYNC -> sync(session)
-                    ScheduleAction.STATUS -> helper.monitor(200).let { storeSnapshot(it, auto); "Stato: " + describe(it) }
+    private fun syncScripts(session: ClusterSession): String {
+        val r = engine().apply(SshRemoteStore(session))
+        if (r.errors.isNotEmpty()) throw ActionFailed("Sync: ${r.errors.size} errori (${r.errors.first()})")
+        return "Sync ok: ${r.updated.size} aggiornati su ${r.checked}"
+    }
+
+    suspend fun run(action: ScheduleAction, source: String, auto: Boolean) = when (action) {
+        ScheduleAction.TICK -> tick(source, auto)
+        ScheduleAction.SYNC -> sync(source, auto)
+    }
+
+    suspend fun tick(source: String, auto: Boolean) = recorder.record(Op.TICK, source, auto) {
+        var prefix = ""
+        var failed = false
+        val snap = mutating(auto) { s, h ->
+            val r = try {
+                h.tick()
+            } catch (e: HelperMissingException) {
+                prefix = syncScripts(s) + "; "
+                h.tick()
+            }
+            failed = r.tickFailed
+            r.snapshot
+        }
+        storeSnapshot(snap, auto)
+        if (failed) throw ActionFailed("Tick fallito sul cluster (${describe(snap)})")
+        prefix + "Tick ok: " + describe(snap)
+    }
+
+    suspend fun sync(source: String, auto: Boolean) =
+        recorder.record(Op.SYNC, source, auto) { live.exec(keep = !auto) { s, _ -> syncScripts(s) } }
+
+    /** A queue / chain change: [block] returns the new snapshot; [ok] is the history text. */
+    suspend fun mutate(op: Op, ok: String, block: (HelperApi) -> Snapshot) = recorder.record(op, "manuale", false) {
+        storeSnapshot(mutating(false) { _, h -> block(h) }, false)
+        ok
+    }
+
+    suspend fun scriptStatus(): List<ScriptStatus> = live.exec { s, _ -> engine().status(SshRemoteStore(s)) }
+
+    /** VPN -> SSH -> Cluster, stopping at the first failure; [onSteps] gets every intermediate state. */
+    suspend fun testConnection(onSteps: (List<ConnStep>) -> Unit) = recorder.record(Op.TEST, "manuale", false) {
+        live.exclusive { runTest(onSteps) }
+    }
+
+    private fun runTest(onSteps: (List<ConnStep>) -> Unit): String {
+        var steps = listOf(ConnStep("VPN", StepState.RUNNING), ConnStep("SSH"), ConnStep("Cluster"))
+        fun show(i: Int, step: ConnStep) {
+            steps = steps.toMutableList().also { it[i] = step }
+            onSteps(steps)
+        }
+        onSteps(steps)
+        var stage = 0
+        var t0 = System.currentTimeMillis()
+        try {
+            connector.config()
+            val base = connector.transport()
+            val timed = object : Transport {
+                override fun open(host: String, port: Int, timeoutMs: Int) = base.open(host, port, timeoutMs).also {
+                    show(0, ConnStep("VPN", StepState.OK, System.currentTimeMillis() - t0))
+                    show(1, ConnStep("SSH", StepState.RUNNING))
+                    stage = 1
+                    t0 = System.currentTimeMillis()
                 }
             }
-        }
-
-    /** Staged connection test: one line per step with timing; stops at the first failure. Never prints secrets. */
-    fun lab(emit: (String) -> Unit) {
-        val s = settings()
-        fun step(name: String, block: () -> String): Boolean {
-            val t0 = System.currentTimeMillis()
-            return try {
-                val detail = block()
-                emit("[OK]  $name  ${System.currentTimeMillis() - t0} ms  $detail".trimEnd())
-                true
-            } catch (e: Exception) {
-                emit("[KO]  $name  ${System.currentTimeMillis() - t0} ms  ${handleFailure(e).message}")
-                false
+            connector.open(timed).use { session ->
+                show(1, ConnStep("SSH", StepState.OK, System.currentTimeMillis() - t0))
+                show(2, ConnStep("Cluster", StepState.RUNNING))
+                stage = 2
+                t0 = System.currentTimeMillis()
+                HelperApi(session).status()
+                show(2, ConnStep("Cluster", StepState.OK, System.currentTimeMillis() - t0))
             }
+        } catch (e: Exception) {
+            show(stage, ConnStep(steps[stage].name, StepState.FAIL, System.currentTimeMillis() - t0, classify(e).message))
+            throw e
         }
-        if (!s.configured) return emit("[KO]  configurazione  ${ConfigMissingException(s.missing).message}")
-        val cfg = ClusterConfig(s.host.trim(), s.user.trim(), s.privateKey, s.passphrase.ifBlank { null }, s.port)
-        val transport = transports.get(s) { name, detail -> emit("      sstp $name  $detail".trimEnd()) }
-        if (s.transport == TransportKind.DIRECT) {
-            if (!step("risoluzione host") { InetAddress.getByName(cfg.host).hostAddress.orEmpty() }) return
-            if (!step("apertura trasporto DIRECT") { transport.open(cfg.host, cfg.port, 10_000).use { "connesso" } }) return
-        } // SSTP: the tunnel stages print during the ssh step (one VPN login only)
-        var session: ClusterSession? = null
-        if (!step("autenticazione ssh") { session = ClusterSession.open(cfg, transport, hostKeys, 45_000); "ok" }) return
-        session!!.use {
-            step("helper status") { describe(HelperApi(it).status()) }
-        }
+        return steps.joinToString(", ") { "${it.name} ${it.ms} ms" }
     }
 }

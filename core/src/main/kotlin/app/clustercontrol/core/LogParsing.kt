@@ -36,6 +36,14 @@ fun parseProgress(logTail: String): LogProgress {
     return LogProgress(null, total, null, null, null)
 }
 
+/** `h:mm:ss` or `mm:ss` (tqdm ETA) to seconds; null for `?` placeholders and anything else. */
+fun parseEtaSeconds(eta: String?): Long? {
+    val parts = eta?.split(':') ?: return null
+    if (parts.size !in 2..3) return null
+    val n = parts.map { it.toLongOrNull() ?: return null }
+    return n.fold(0L) { acc, v -> acc * 60 + v }
+}
+
 data class Point(val step: Int, val value: Double)
 
 private val SERIES_LINE = Regex("""^\s+step=(\d+)\s+(.*)$""")

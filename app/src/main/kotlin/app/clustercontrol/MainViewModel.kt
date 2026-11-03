@@ -3,188 +3,311 @@ package app.clustercontrol
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import app.clustercontrol.core.ConfigCell
 import app.clustercontrol.core.ConfigCatalog
+import app.clustercontrol.core.ConfigCell
 import app.clustercontrol.core.GithubFetcher
-import app.clustercontrol.core.HelperApi
 import app.clustercontrol.core.JobEntry
-import app.clustercontrol.core.KeyGen
 import app.clustercontrol.core.Point
 import app.clustercontrol.core.Preset
 import app.clustercontrol.core.Schedule
-import app.clustercontrol.core.ScheduleAction
+import app.clustercontrol.core.ScriptStatus
 import app.clustercontrol.core.Snapshot
-import app.clustercontrol.core.SyncItem
+import app.clustercontrol.core.SyncManifest
+import app.clustercontrol.core.buildEntry
+import app.clustercontrol.core.moved
 import app.clustercontrol.core.parsePresets
+import app.clustercontrol.core.resolveJobs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+data class ScriptsUi(val items: List<ScriptStatus>? = null, val busy: Boolean = false, val result: String? = null)
+
+data class ConnUi(val steps: List<ConnStep> = emptyList(), val running: Boolean = false)
 
 data class UiState(
-    val settings: AppSettings,
-    val state: AppState,
-    val schedules: List<Schedule>,
-    val history: List<HistoryEntry>,
-    val busy: Boolean = false,
+    val snapshot: Snapshot? = null,
+    val snapshotAt: Long? = null,
+    val link: Link = Link.OFFLINE,
     val error: ClusterError? = null,
-    val message: String? = null,
+    val series: Map<String, List<Point>> = emptyMap(),
+    val queue: List<JobEntry> = emptyList(),
+    val schedules: List<Schedule> = emptyList(),
+    val history: List<HistoryEntry> = emptyList(),
+    val suspended: Boolean = false,
+    val suspendReason: String? = null,
+    val busy: Boolean = false,
+    val refreshing: Boolean = false,
     val catalog: List<ConfigCell> = emptyList(),
     val presets: List<Preset> = emptyList(),
+    val catalogLoading: Boolean = false,
     val catalogError: String? = null,
-    val series: Map<String, List<Point>> = emptyMap(),
-    val seriesTotal: Int? = null,
-    val resultDirs: List<String> = emptyList(),
-    val results: Map<String, String> = emptyMap(),
-    val syncPlan: List<SyncItem>? = null,
-    val labLines: List<String> = emptyList(),
-) {
-    val snapshot: Snapshot? get() = state.snapshot
+    val scripts: ScriptsUi = ScriptsUi(),
+    val conn: ConnUi = ConnUi(),
+)
+
+/** What the screens can ask for (the view model implements it; previews use a no-op). */
+interface Actions {
+    fun refresh()
+    fun tick()
+    fun pauseResume()
+    fun kill()
+    fun clearQueue()
+    fun queueMove(from: Int, to: Int)
+    fun queueRemove(index: Int): JobEntry
+    fun queueUndo(index: Int, entry: JobEntry)
+    fun queueFlush()
+    fun addJob(cell: ConfigCell, type: String)
+    fun addPresets(presets: List<Preset>, replace: Boolean, startNow: Boolean)
+    fun loadCatalog()
+    fun saveSchedules(list: List<Schedule>)
+    fun runSchedule(s: Schedule)
+    fun resumeAuto()
+    fun checkScripts()
+    fun updateScripts()
+    fun testConnection()
+    fun clearHistory()
 }
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
+class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
     private val g = ClusterApp.graph
-    private val _ui = MutableStateFlow(UiState(g.secure.load(), g.stores.state(), g.stores.schedules(), g.stores.history()))
-    val ui: StateFlow<UiState> = _ui.asStateFlow()
+    private val editor = QueueEditor(g.stores.state.value.snapshot?.queue.orEmpty())
+    private val local = MutableStateFlow(UiState(queue = editor.items).withCache())
+    private var inFlight = 0
+
+    private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val events: SharedFlow<String> = _events
+
+    private fun merge(l: LiveState, st: AppState, sch: List<Schedule>, hist: List<HistoryEntry>, loc: UiState) = loc.copy(
+        snapshot = l.snapshot, snapshotAt = l.snapshotAt, link = l.link, error = l.error, series = l.series,
+        schedules = sch, history = hist, suspended = st.autoSuspended, suspendReason = st.suspendReason,
+    )
+
+    val ui: StateFlow<UiState> = combine(g.live.state, g.stores.state, g.stores.schedules, g.stores.history, local) { l, st, sch, hist, loc -> merge(l, st, sch, hist, loc) }
+        .stateIn(
+            viewModelScope, SharingStarted.Eagerly,
+            merge(g.live.state.value, g.stores.state.value, g.stores.schedules.value, g.stores.history.value, local.value),
+        )
 
     init {
-        if (_ui.value.settings.configured) refresh()
-    }
-
-    private suspend fun reload() {
-        val f = withContext(Dispatchers.IO) { UiState(g.secure.load(), g.stores.state(), g.stores.schedules(), g.stores.history()) }
-        _ui.update { it.copy(settings = f.settings, state = f.state, schedules = f.schedules, history = f.history) }
-    }
-
-    fun messageShown() = _ui.update { it.copy(message = null) }
-
-    /** Runs [block] off the main thread; a failure becomes the dashboard error (and may trip the circuit breaker). */
-    private fun launchOp(ok: String? = null, block: () -> Unit) {
         viewModelScope.launch {
-            _ui.update { it.copy(busy = true) }
-            val err = withContext(Dispatchers.IO) { runCatching(block).exceptionOrNull()?.let { g.ops.handleFailure(it) } }
-            reload()
-            _ui.update { it.copy(busy = false, error = err, message = err?.message ?: ok) }
-        }
-    }
-
-    fun refresh() = launchOp { g.ops.refresh() }
-
-    fun runAction(action: ScheduleAction, source: String = "manuale") = launchOp {
-        val e = g.ops.runAction(action, source, auto = false)
-        if (!e.ok) throw ActionFailed(e.message)
-    }
-
-    private fun mutate(ok: String, block: (HelperApi) -> Snapshot) = launchOp(ok) { g.ops.mutate(block) }
-
-    fun pauseResume() = if (_ui.value.snapshot?.stopped == true) mutate("Catena ripresa") { it.resume() } else mutate("Catena in pausa") { it.pause() }
-
-    fun kill() = mutate("Job terminato") { it.kill() }
-
-    fun removeTag(tag: String) = mutate("Rimosso $tag") { it.removeTag(tag) }
-
-    fun submit(entries: List<JobEntry>, replace: Boolean, startNow: Boolean) = mutate("Coda aggiornata") { h ->
-        if (replace) {
-            h.rewriteQueue(entries).let { if (startNow) h.tick().also { t -> check(!t.tickFailed) { "Tick fallito" } }.snapshot else it }
-        } else {
-            h.enqueue(entries, startNow).also { check(!it.tickFailed) { "Tick fallito" } }.snapshot
-        }
-    }
-
-    fun loadCatalog() {
-        val s = _ui.value.settings
-        viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) {
-                runCatching {
-                    val f = GithubFetcher(s.githubToken.ifBlank { null })
-                    val repo = s.repo.trim()
-                    val branch = s.branch.trim()
-                    ConfigCatalog.fromTree(f.tree(repo, branch)) to
-                        parsePresets(String(f.fetch(repo, branch, "remote/presets.yaml"), Charsets.UTF_8))
+            g.live.state.map { it.snapshot?.queue }.distinctUntilChanged().collect { q ->
+                if (q != null) {
+                    editor.adopt(q)
+                    publishQueue()
                 }
             }
-            _ui.update {
-                r.fold(
-                    { (c, p) -> it.copy(catalog = c, presets = p, catalogError = null) },
-                    { e -> it.copy(catalogError = "Catalogo GitHub non caricato: ${e.message}") },
+        }
+    }
+
+    private fun UiState.withCache(): UiState {
+        val paths = g.stores.cached(CATALOG_CACHE)?.lines()?.filter { it.isNotBlank() }
+        val presets = g.stores.cached(PRESETS_CACHE)?.let { runCatching { parsePresets(it) }.getOrNull() }
+        return copy(catalog = paths?.let(ConfigCatalog::fromTree).orEmpty(), presets = presets.orEmpty())
+    }
+
+    private fun publishQueue() = local.update { it.copy(queue = editor.items) }
+
+    private fun launchBusy(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            inFlight++
+            local.update { it.copy(busy = true) }
+            try {
+                block()
+            } finally {
+                if (--inFlight == 0) local.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    private fun report(e: HistoryEntry, ok: String) {
+        _events.tryEmit(if (e.ok) ok else e.message)
+    }
+
+    override fun refresh() {
+        viewModelScope.launch {
+            local.update { it.copy(refreshing = true) }
+            val at = g.live.state.value.snapshotAt
+            g.live.refresh()
+            withTimeoutOrNull(12_000) {
+                g.live.state.drop(1).first { it.snapshotAt != at || it.link == Link.OFFLINE || it.error != null }
+            }
+            local.update { it.copy(refreshing = false) }
+        }
+    }
+
+    override fun tick() {
+        launchBusy { report(g.ops.tick("manuale", false), "Tick eseguito") }
+    }
+
+    override fun pauseResume() {
+        launchBusy {
+            if (ui.value.snapshot?.stopped == true) {
+                report(g.ops.mutate(Op.RESUME, "Catena ripresa") { it.resume() }, "Catena ripresa")
+            } else {
+                report(g.ops.mutate(Op.PAUSE, "Catena in pausa") { it.pause() }, "Catena in pausa")
+            }
+        }
+    }
+
+    override fun kill() {
+        launchBusy { report(g.ops.mutate(Op.KILL, "Job terminato") { it.kill() }, "Job terminato") }
+    }
+
+    override fun clearQueue() = enqueue(emptyList(), replace = true, startNow = false, ok = "Coda svuotata")
+
+    override fun queueMove(from: Int, to: Int) {
+        editor.edit { it.moved(from, to) }
+        publishQueue()
+    }
+
+    override fun queueRemove(index: Int): JobEntry {
+        val removed = editor.items[index]
+        editor.edit { l -> l.toMutableList().also { it.removeAt(index) } }
+        publishQueue()
+        return removed
+    }
+
+    override fun queueUndo(index: Int, entry: JobEntry) {
+        editor.edit { l -> l.toMutableList().also { it.add(index.coerceAtMost(it.size), entry) } }
+        publishQueue()
+    }
+
+    /** Writes the edited queue (one rewrite per batch of edits); on failure it reverts to the cluster's queue. */
+    override fun queueFlush() {
+        var list = editor.takeWrite() ?: return
+        // the app-wide scope: leaving the screen or the activity must not cancel the write
+        g.scope.launch(Dispatchers.Main) {
+            while (true) {
+                val e = g.ops.mutate(Op.QUEUE, "Coda aggiornata (${list.size})") { it.rewriteQueue(list) }
+                val remote = g.live.state.value.snapshot?.queue.orEmpty()
+                if (e.ok) {
+                    editor.written(remote)
+                } else {
+                    editor.failed(remote)
+                    _events.tryEmit("Coda non aggiornata: ${e.message}")
+                }
+                publishQueue()
+                list = editor.takeWrite() ?: break
+            }
+        }
+    }
+
+    private fun enqueue(entries: List<JobEntry>, replace: Boolean, startNow: Boolean, ok: String) {
+        queueFlush()
+        launchBusy {
+            val e = g.ops.mutate(Op.QUEUE, ok) { h ->
+                if (replace) {
+                    val s = h.rewriteQueue(entries)
+                    if (startNow) h.tick().also { check(!it.tickFailed) { "Tick fallito" } }.snapshot else s
+                } else {
+                    h.enqueue(entries, startNow).also { check(!it.tickFailed) { "Tick fallito" } }.snapshot
+                }
+            }
+            report(e, ok)
+        }
+    }
+
+    override fun addJob(cell: ConfigCell, type: String) {
+        runCatching { buildEntry(type, cell.path, cell.name) }
+            .onSuccess { enqueue(listOf(it), replace = false, startNow = false, ok = "Aggiunto in coda") }
+            .onFailure { _events.tryEmit(it.message ?: "Job non valido") }
+    }
+
+    override fun addPresets(presets: List<Preset>, replace: Boolean, startNow: Boolean) {
+        runCatching { presets.flatMap { resolveJobs(local.value.catalog, it.jobs) } }
+            .onSuccess { enqueue(it, replace, startNow, if (replace) "Coda sostituita" else "Aggiunti in coda") }
+            .onFailure { _events.tryEmit(it.message ?: "Preset non valido") }
+    }
+
+    override fun loadCatalog() {
+        if (local.value.catalogLoading) return
+        local.update { it.copy(catalogLoading = true) }
+        viewModelScope.launch {
+            val (cells, presets) = withContext(Dispatchers.IO) {
+                val f = GithubFetcher()
+                val tree = runCatching { f.tree(Seed.REPO, Seed.BRANCH) }.getOrNull()?.let(ConfigCatalog::fromTree)
+                val yaml = runCatching { String(f.fetch(Seed.REPO, Seed.BRANCH, SyncManifest.PRESETS_PATH), Charsets.UTF_8) }.getOrNull()
+                tree?.let { c -> g.stores.cache(CATALOG_CACHE, c.joinToString("\n") { it.path }) }
+                yaml?.let { g.stores.cache(PRESETS_CACHE, it) }
+                tree to yaml?.let { runCatching { parsePresets(it) }.getOrNull() }
+            }
+            local.update {
+                it.copy(
+                    catalog = cells ?: it.catalog,
+                    presets = presets ?: it.presets,
+                    catalogLoading = false,
+                    catalogError = if (it.catalog.isEmpty() && cells == null) "Catalogo non disponibile" else null,
                 )
             }
         }
     }
 
-    fun loadSeries(tag: String) = launchOp {
-        val r = g.ops.withCluster { _, h -> h.timeseries(tag) }
-        _ui.update { it.copy(series = r.series, seriesTotal = r.total) }
-    }
-
-    fun loadResultDirs() = launchOp {
-        val dirs = g.ops.withCluster { _, h -> h.results("").keys.toList() }
-        _ui.update { it.copy(resultDirs = dirs) }
-    }
-
-    fun loadResults(token: String) = launchOp {
-        val r = g.ops.withCluster { _, h -> h.results(token) }
-        _ui.update { it.copy(results = r) }
-    }
-
-    fun saveSchedules(list: List<Schedule>) {
+    override fun saveSchedules(list: List<Schedule>) {
         viewModelScope.launch(Dispatchers.IO) {
             g.stores.saveSchedules(list)
             g.scheduler.sync()
-            reload()
         }
     }
 
-    fun setMaster(on: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            g.stores.updateState { it.copy(master = on) }
-            g.scheduler.sync()
-            reload()
-        }
+    override fun runSchedule(s: Schedule) {
+        launchBusy { report(g.ops.run(s.action, s.name, auto = false), "${s.name}: eseguito") }
     }
 
-    fun resumeAuto() {
+    override fun resumeAuto() {
         viewModelScope.launch(Dispatchers.IO) {
             g.stores.updateState { it.copy(autoSuspended = false, suspendReason = null) }
             g.scheduler.sync()
-            reload()
         }
+        g.live.refresh()
     }
 
-    fun saveSettings(s: AppSettings) {
+    override fun checkScripts() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { g.secure.save(s) }
-            reload()
-            _ui.update { it.copy(message = "Impostazioni salvate") }
+            local.update { it.copy(scripts = it.scripts.copy(busy = true, result = null)) }
+            val r = runCatching { g.ops.scriptStatus() }
+            local.update {
+                it.copy(scripts = ScriptsUi(r.getOrNull() ?: it.scripts.items, false, r.exceptionOrNull()?.let { e -> classify(e).message }))
+            }
         }
     }
 
-    fun generateKey(base: AppSettings) {
+    override fun updateScripts() {
         viewModelScope.launch {
-            val k = withContext(Dispatchers.Default) { runCatching { KeyGen.generate("clustercontrol") } }
-            k.onSuccess { saveSettings(base.copy(privateKey = it.privateKeyPem, publicKey = it.publicKeyLine, passphrase = "")) }
-                .onFailure { e -> _ui.update { it.copy(message = "Generazione chiave fallita: ${e.message}") } }
+            local.update { it.copy(scripts = it.scripts.copy(busy = true, result = null)) }
+            val e = g.ops.sync("manuale", false)
+            val items = runCatching { g.ops.scriptStatus() }.getOrNull()
+            local.update { it.copy(scripts = ScriptsUi(items ?: it.scripts.items, false, e.message)) }
         }
     }
 
-    fun forgetHostKey() {
-        viewModelScope.launch(Dispatchers.IO) {
-            g.secure.forgetHostKey(_ui.value.settings.host.trim())
-            _ui.update { it.copy(message = "Host key dimenticata") }
-        }
-    }
-
-    fun planSync() = launchOp { _ui.update { it.copy(syncPlan = g.ops.syncPlan()) } }
-
-    fun runLab() {
+    override fun testConnection() {
+        if (local.value.conn.running) return
         viewModelScope.launch {
-            _ui.update { it.copy(busy = true, labLines = listOf("Avvio test...")) }
-            withContext(Dispatchers.IO) { g.ops.lab { line -> _ui.update { it.copy(labLines = it.labLines + line) } } }
-            reload()
-            _ui.update { it.copy(busy = false) }
+            local.update { it.copy(conn = ConnUi(running = true)) }
+            g.ops.testConnection { steps -> local.update { it.copy(conn = ConnUi(steps, true)) } }
+            local.update { it.copy(conn = it.conn.copy(running = false)) }
+            g.live.refresh()
         }
+    }
+
+    override fun clearHistory() = g.stores.clearHistory()
+
+    private companion object {
+        const val CATALOG_CACHE = "catalog.txt"
+        const val PRESETS_CACHE = "presets.yaml"
     }
 }

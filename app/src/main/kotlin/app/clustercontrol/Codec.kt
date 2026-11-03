@@ -81,16 +81,17 @@ fun historyFromJson(o: JsonObject) = HistoryEntry(
 )
 
 fun AppState.toJson(): JsonObject = buildJsonObject {
-    put("master", master); put("autoSuspended", autoSuspended); put("suspendReason", suspendReason)
+    put("autoSuspended", autoSuspended); put("suspendReason", suspendReason)
     put("snapshot", snapshot?.toJson() ?: JsonNull)
     put("snapshotAt", snapshotAt)
+    put("schedulesVersion", schedulesVersion)
 }
 
 fun stateFromJson(o: JsonObject) = AppState(
-    master = o["master"]!!.jsonPrimitive.boolean,
     autoSuspended = o["autoSuspended"]!!.jsonPrimitive.boolean,
     suspendReason = o.str("suspendReason"),
     snapshot = (o["snapshot"] as? JsonObject)?.let(::snapshotFromJson),
     snapshotAt = (o["snapshotAt"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull(),
+    schedulesVersion = (o["schedulesVersion"] as? JsonPrimitive)?.intOrNull ?: 0,
 )
 

@@ -14,7 +14,7 @@ data class ClusterError(val kind: ErrorKind, val message: String)
 class ActionFailed(message: String) : Exception(message)
 
 class ConfigMissingException(missing: List<String> = emptyList()) :
-    Exception("Configura in Impostazioni" + if (missing.isEmpty()) "" else ": manca " + missing.joinToString(", "))
+    Exception("Credenziali non incorporate" + if (missing.isEmpty()) "" else ": manca " + missing.joinToString(", "))
 
 private val AUTH_MARKERS = listOf("auth fail", "auth cancel", "userauth fail", "invalid privatekey", "passphrase")
 
@@ -22,19 +22,16 @@ private val AUTH_MARKERS = listOf("auth fail", "auth cancel", "userauth fail", "
 fun classify(e: Throwable): ClusterError {
     val chain = generateSequence(e) { it.cause }.toList()
     return when {
-        chain.any { it is HostKeyChangedException } ->
-            ClusterError(ErrorKind.AUTH, "Host key del cluster cambiata: verifica e usa Impostazioni > Dimentica host key")
+        chain.any { it is HostKeyChangedException } -> ClusterError(ErrorKind.AUTH, "Host key del cluster cambiata")
         chain.any { it is JSchException && AUTH_MARKERS.any { m -> it.message.orEmpty().lowercase().contains(m) } } ->
-            ClusterError(ErrorKind.AUTH, "Autenticazione SSH fallita: controlla utente e chiave")
+            ClusterError(ErrorKind.AUTH, "Autenticazione SSH fallita")
         chain.any { it is SstpException && it.message.orEmpty().lowercase().let { m -> "chap" in m || "auth" in m } } ->
-            ClusterError(ErrorKind.AUTH, "Autenticazione VPN fallita: controlla utente e password VPN")
-        chain.any { it is HelperMissingException } ->
-            ClusterError(ErrorKind.HELPER_MISSING, "Helper assente sul cluster: esegui Script > Aggiorna cluster")
+            ClusterError(ErrorKind.AUTH, "Autenticazione VPN fallita")
+        chain.any { it is HelperMissingException } -> ClusterError(ErrorKind.HELPER_MISSING, "Helper assente sul cluster")
         chain.any { it is ConfigMissingException } -> ClusterError(ErrorKind.CONFIG, chain.first { it is ConfigMissingException }.message!!)
-        chain.any { it is UnsupportedOperationException } -> ClusterError(ErrorKind.CONFIG, e.message ?: "Non supportato")
         chain.any { it is NoActiveJobException } -> ClusterError(ErrorKind.OTHER, "Nessun job attivo")
         chain.any { it is JSchException || it is java.io.IOException } ->
-            ClusterError(ErrorKind.UNREACHABLE, "Cluster non raggiungibile: ${chain.last().message ?: e.javaClass.simpleName}")
+            ClusterError(ErrorKind.UNREACHABLE, "Cluster non raggiungibile")
         else -> ClusterError(ErrorKind.OTHER, e.message ?: e.javaClass.simpleName)
     }
 }

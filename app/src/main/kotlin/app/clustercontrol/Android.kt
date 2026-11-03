@@ -11,6 +11,9 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -22,8 +25,9 @@ import androidx.work.workDataOf
 
 import java.security.Security
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 private const val CHANNEL = "cluster"
@@ -53,7 +57,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
 class WorkScheduler(private val ctx: Context, private val stores: Stores) {
     fun sync() {
         val wm = WorkManager.getInstance(ctx)
-        val want = desiredWork(stores.schedules(), stores.state())
+        val want = desiredWork(stores.schedules.value, stores.state.value)
         val names = want.map { workName(it.id) }.toSet()
         want.forEach { s ->
             val request = PeriodicWorkRequestBuilder<ActionWorker>(s.effectiveIntervalMinutes.toLong(), TimeUnit.MINUTES)
@@ -80,22 +84,25 @@ class WorkScheduler(private val ctx: Context, private val stores: Stores) {
 
 class ActionWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     // Always success: a failed slot is recorded and notified, never retried (the next slot is the retry).
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+    override suspend fun doWork(): Result {
         val g = ClusterApp.graph
-        val s = g.stores.schedules().firstOrNull { it.id == inputData.getString("id") }
-        if (s != null && s.enabled && desiredWork(listOf(s), g.stores.state()).isNotEmpty()) {
-            g.ops.runAction(s.action, s.name, auto = true)
+        val s = g.stores.schedules.value.firstOrNull { it.id == inputData.getString("id") }
+        if (s != null && s.enabled && desiredWork(listOf(s), g.stores.state.value).isNotEmpty()) {
+            g.ops.run(s.action, s.name, auto = true)
         }
-        Result.success()
+        return Result.success()
     }
 }
 
 class Graph(ctx: Context) {
-    val secure = SecureSettings(ctx)
     val stores = Stores(ctx.filesDir)
     val notifier = AndroidNotifier(ctx)
     val scheduler = WorkScheduler(ctx, stores)
-    val ops = ClusterOps(secure::load, stores, DefaultTransportProvider, secure.hostKeys, notifier) { scheduler.sync() }
+    private val connector = Connector(SecureHostKeys(ctx))
+    private val recorder = Recorder(stores, notifier, onSuspended = { scheduler.sync() })
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val live = LiveSession(connector, stores, recorder::handleFailure, scope)
+    val ops = ClusterOps(live, connector, stores, notifier, recorder)
 }
 
 class ClusterApp : Application() {
@@ -106,6 +113,15 @@ class ClusterApp : Application() {
         Security.insertProviderAt(BouncyCastleProvider(), 1)
         graph = Graph(this)
         Thread { graph.scheduler.sync() }.start()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> graph.live.start()
+                    Lifecycle.Event.ON_STOP -> graph.live.stop()
+                    else -> {}
+                }
+            },
+        )
     }
 
     companion object {
