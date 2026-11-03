@@ -67,7 +67,7 @@ interface Actions {
     fun kill()
     fun clearQueue()
     fun queueMove(from: Int, to: Int)
-    fun queueRemove(index: Int): JobEntry
+    fun queueRemove(index: Int): JobEntry?
     fun queueUndo(index: Int, entry: JobEntry)
     fun queueFlush()
     fun addJob(cell: ConfigCell, type: String)
@@ -174,8 +174,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         publishQueue()
     }
 
-    override fun queueRemove(index: Int): JobEntry {
-        val removed = editor.items[index]
+    override fun queueRemove(index: Int): JobEntry? {
+        val removed = editor.items.getOrNull(index) ?: return null
         editor.edit { l -> l.toMutableList().also { it.removeAt(index) } }
         publishQueue()
         return removed

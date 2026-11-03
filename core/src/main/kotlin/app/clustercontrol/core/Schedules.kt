@@ -1,6 +1,6 @@
 package app.clustercontrol.core
 
-enum class ScheduleAction { TICK, SYNC }
+enum class ScheduleAction { TICK, SYNC, STATUS }
 
 /** A user-defined "cron job". WorkManager periodic work cannot run more often than every 15 minutes. */
 data class Schedule(

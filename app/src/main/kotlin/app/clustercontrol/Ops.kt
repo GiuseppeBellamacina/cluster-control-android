@@ -53,6 +53,7 @@ class ClusterOps(
     suspend fun run(action: ScheduleAction, source: String, auto: Boolean) = when (action) {
         ScheduleAction.TICK -> tick(source, auto)
         ScheduleAction.SYNC -> sync(source, auto)
+        ScheduleAction.STATUS -> status(source, auto)
     }
 
     suspend fun tick(source: String, auto: Boolean) = recorder.record(Op.TICK, source, auto) {
@@ -71,6 +72,12 @@ class ClusterOps(
         storeSnapshot(snap, auto)
         if (failed) throw ActionFailed("Tick fallito sul cluster (${describe(snap)})")
         prefix + "Tick ok: " + describe(snap)
+    }
+
+    suspend fun status(source: String, auto: Boolean) = recorder.record(Op.STATUS, source, auto) {
+        val snap = mutating(auto) { _, h -> h.monitor(LiveSession.MONITOR_LINES) }
+        storeSnapshot(snap, auto)
+        "Stato: " + describe(snap)
     }
 
     suspend fun sync(source: String, auto: Boolean) =

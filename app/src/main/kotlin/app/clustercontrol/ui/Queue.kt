@@ -116,21 +116,25 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
                         val lift by animateDpAsState(if (dragging) 10.dp else 0.dp, label = "lift")
                         // the state is created once: read the current index, not the one of the first composition
                         val current by rememberUpdatedState(index)
-                        val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = {
-                            if (it == SwipeToDismissBoxValue.EndToStart) {
+                        val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { it == SwipeToDismissBoxValue.EndToStart })
+                        // a restored row (Annulla) must not come back already swiped away
+                        var armed by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
+                            if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) dismiss.reset()
+                            armed = true
+                        }
+                        LaunchedEffect(dismiss.currentValue, armed) {
+                            if (armed && dismiss.currentValue == SwipeToDismissBoxValue.EndToStart) {
                                 val i = current
-                                val title = JobNames.of(items[i]).title
-                                val removed = actions.queueRemove(i)
+                                val title = items.getOrNull(i)?.let { JobNames.of(it).title } ?: return@LaunchedEffect
+                                val removed = actions.queueRemove(i) ?: return@LaunchedEffect
                                 items = items.toMutableList().also { l -> l.removeAt(i) }
                                 scope.launch {
                                     val r = snackbar.showSnackbar("Rimosso $title", "Annulla", duration = SnackbarDuration.Short)
                                     if (r == SnackbarResult.ActionPerformed) actions.queueUndo(i, removed) else actions.queueFlush()
                                 }
-                                true
-                            } else {
-                                false
                             }
-                        })
+                        }
                         SwipeToDismissBox(
                             dismiss,
                             backgroundContent = {

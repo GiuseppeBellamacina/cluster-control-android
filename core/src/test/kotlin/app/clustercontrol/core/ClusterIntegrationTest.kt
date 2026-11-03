@@ -27,16 +27,27 @@ class ClusterIntegrationTest {
         override fun put(host: String, fingerprint: String) { m[host] = fingerprint }
     }
 
-    @Test
-    fun fullClusterFlow() {
+    private fun itConfig(): ClusterConfig {
         val host = System.getenv("CC_IT_HOST")
         assumeTrue(host != null, "CC_IT_HOST not set: integration test skipped")
-        val cfg = ClusterConfig(
+        return ClusterConfig(
             host = host,
             user = System.getenv("CC_IT_USER"),
             privateKeyPem = File(System.getenv("CC_IT_KEY_FILE")).readText(),
             port = System.getenv("CC_IT_PORT").toInt(),
         )
+    }
+
+    @Test
+    fun keepAliveSessionRunsCommands() {
+        ClusterSession.open(itConfig(), DirectTransport, memoryKeys, serverAliveIntervalMs = 15_000).use {
+            assertEquals(0, it.exec("true").rc)
+        }
+    }
+
+    @Test
+    fun fullClusterFlow() {
+        val cfg = itConfig()
         ClusterSession.open(cfg, DirectTransport, memoryKeys).use { s ->
             val helper = HelperApi(s)
 

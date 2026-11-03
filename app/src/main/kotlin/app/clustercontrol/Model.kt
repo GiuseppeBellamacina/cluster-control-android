@@ -9,6 +9,7 @@ import kotlinx.serialization.json.doubleOrNull
 /** Everything the app records in the history; [name] is what is stored. */
 enum class Op(val label: String) {
     TICK("Tick"),
+    STATUS("Stato"),
     SYNC("Sync script"),
     QUEUE("Coda"),
     KILL("Kill job"),
