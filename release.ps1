@@ -45,7 +45,7 @@ if (Test-Path $secrets) {
 
 if ($Publish) {
     $tag = "v$ver"
-    git tag $tag
+    git tag -a $tag -m "ClusterControl $ver"
     git push origin $tag
     gh release create $tag $apk --title "ClusterControl $ver" --notes $Notes
 }
