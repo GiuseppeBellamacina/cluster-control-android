@@ -20,9 +20,13 @@ Copy-Item "$proj\dist\clustercontrol-debug.apk" $apk -Force
 $secrets = Join-Path $proj "secrets.properties"
 if (Test-Path $secrets) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $needles = foreach ($line in Get-Content $secrets) {
-        $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($line.Split('=', 2)[1]))
-        ($text -split "`r?`n" | Sort-Object Length -Descending | Select-Object -First 1)  # longest line: a key body, a password...
+    # hosts are public (they are also the defaults in the code): only the secrets are checked, by field name
+    $needles = @{}
+    foreach ($line in Get-Content $secrets) {
+        $name, $b64 = $line.Split('=', 2)
+        if ($name -notin "vpnUser", "vpnPassword", "sshUser", "sshKey") { continue }
+        $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
+        $needles[$name] = ($text -split "`r?`n" | Sort-Object Length -Descending | Select-Object -First 1)  # longest line: a key body, a password...
     }
     $zip = [IO.Compression.ZipFile]::OpenRead($apk)
     try {
@@ -30,8 +34,8 @@ if (Test-Path $secrets) {
             $ms = New-Object IO.MemoryStream
             $s = $entry.Open(); $s.CopyTo($ms); $s.Dispose()
             $content = [Text.Encoding]::Latin1.GetString($ms.ToArray())
-            foreach ($n in $needles | Where-Object { $_ }) {
-                if ($content.Contains($n)) { throw "LEAK: a credential is inside $apk ($($entry.Name)); not publishing" }
+            foreach ($name in $needles.Keys) {
+                if ($needles[$name] -and $content.Contains($needles[$name])) { throw "LEAK: '$name' is inside $apk ($($entry.Name)); not publishing" }
             }
         }
     }
