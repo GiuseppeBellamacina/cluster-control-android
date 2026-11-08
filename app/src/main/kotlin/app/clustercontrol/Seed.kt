@@ -36,6 +36,17 @@ object Seed {
         }
     }
 
+    /** Stores the non-blank fields encrypted (the app's only way in for the credential-free public release). */
+    fun save(vpnUser: String, vpnPassword: String, sshUser: String, sshKey: String) {
+        val e = prefs?.edit() ?: return
+        vpnUser.trim().takeIf { it.isNotEmpty() }?.let { e.putString("vpnUser", it) }
+        vpnPassword.trim().takeIf { it.isNotEmpty() }?.let { e.putString("vpnPassword", it) }
+        sshUser.trim().takeIf { it.isNotEmpty() }?.let { e.putString("sshUser", it) }
+        // JSch wants a clean PEM: LF line ends, one final newline
+        sshKey.replace("\r\n", "\n").trim().takeIf { it.isNotEmpty() }?.let { e.putString("sshKey", it + "\n") }
+        e.apply()
+    }
+
     // the build-time value is only the fallback when nothing is stored (JVM tests, first run)
     private fun get(key: String, built: String) = prefs?.getString(key, null) ?: built
 

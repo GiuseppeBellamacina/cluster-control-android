@@ -51,7 +51,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goScript: () -> Unit) {
+fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goMore: (String) -> Unit) {
     val now by rememberNow()
     val snap = ui.snapshot
     PullToRefreshBox(ui.refreshing, actions::refresh, modifier.fillMaxSize()) {
@@ -62,7 +62,8 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goScript:
             Header("Dashboard") { LinkStatus(ui, now) }
             ui.error?.let { e ->
                 when (e.kind) {
-                    ErrorKind.HELPER_MISSING -> Banner(e.message, "Sincronizza", goScript)
+                    ErrorKind.HELPER_MISSING -> Banner(e.message, "Sincronizza") { goMore("Sincronizza") }
+                    ErrorKind.CONFIG -> Banner(e.message, "Credenziali") { goMore("Credenziali") }
                     else -> Banner(e.message, if (ui.link == Link.OFFLINE) "Riprova" else null, actions::refresh)
                 }
             }

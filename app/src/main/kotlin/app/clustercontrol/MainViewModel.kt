@@ -74,6 +74,7 @@ data class UiState(
     val conn: ConnUi = ConnUi(),
     val batteryRestricted: Boolean = false,
     val update: UpdateUi = UpdateUi(),
+    val credsMissing: List<String> = emptyList(),
 )
 
 /** What the screens can ask for (the view model implements it; previews use a no-op). */
@@ -100,6 +101,7 @@ interface Actions {
     fun requestBatteryExemption()
     fun checkUpdate()
     fun installUpdate()
+    fun saveCredentials(vpnUser: String, vpnPassword: String, sshUser: String, sshKey: String)
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
@@ -124,6 +126,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
 
     init {
         checkUpdate()
+        local.update { it.copy(credsMissing = Seed.missing) }
         viewModelScope.launch {
             g.live.state.map { it.snapshot?.queue }.distinctUntilChanged().collect { q ->
                 if (q != null) {
@@ -331,6 +334,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
             } catch (e: Exception) {
                 local.update { it.copy(update = it.update.copy(progress = null, error = "Download non riuscito")) }
             }
+        }
+    }
+
+    override fun saveCredentials(vpnUser: String, vpnPassword: String, sshUser: String, sshKey: String) {
+        if (sshKey.isNotBlank() && "PRIVATE KEY" !in sshKey) {
+            _events.tryEmit("La chiave non sembra una chiave privata")
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            Seed.save(vpnUser, vpnPassword, sshUser, sshKey)
+            // new credentials: a suspension caused by the old ones is over
+            g.stores.updateState { it.copy(autoSuspended = false, suspendReason = null) }
+            g.scheduler.sync()
+            local.update { it.copy(credsMissing = Seed.missing) }
+            _events.tryEmit("Credenziali salvate")
+            g.live.refresh()
         }
     }
 

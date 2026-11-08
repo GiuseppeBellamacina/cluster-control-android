@@ -1,6 +1,14 @@
 package app.clustercontrol.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,7 +48,7 @@ import app.clustercontrol.UiState
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.formatAgo
 
-val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico", "Aggiornamenti")
+val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico", "Aggiornamenti", "Credenziali")
 
 @Composable
 fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> Unit, modifier: Modifier) {
@@ -56,6 +64,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
                     ListRow(onClick = { open(name) }) {
                         Text(name, Modifier.weight(1f), fontSize = 15.sp)
                         if (name == "Aggiornamenti" && ui.update.newer) Chip("nuova", Tone.GREEN)
+                        if (name == "Credenziali" && ui.credsMissing.isNotEmpty()) Chip("mancano", Tone.RED)
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = C.Faint)
                     }
                 }
@@ -67,6 +76,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
             "Sincronizza" -> SyncSection(ui, actions)
             "Connessione" -> ConnectionSection(ui, actions)
             "Aggiornamenti" -> UpdateSection(ui, actions)
+            "Credenziali" -> CredentialsSection(ui, actions)
             else -> HistorySection(ui, actions)
         }
     }
@@ -110,6 +120,44 @@ private fun SyncSection(ui: UiState, actions: Actions) {
 }
 
 private const val MAX_SHOWN = 8
+
+@Composable
+private fun CredentialsSection(ui: UiState, actions: Actions) {
+    // plain remember, not rememberSaveable: secrets must not end up in the saved instance state
+    var vpnUser by remember { mutableStateOf("") }
+    var vpnPassword by remember { mutableStateOf("") }
+    var sshUser by remember { mutableStateOf("") }
+    var sshKey by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { sshKey = ctx.contentResolver.openInputStream(it)?.use { s -> s.readBytes().take(16_384).toByteArray().toString(Charsets.UTF_8) }.orEmpty() }
+    }
+    Caption(if (ui.credsMissing.isEmpty()) "Credenziali complete. Compila solo ciò che vuoi cambiare." else "Mancano: " + ui.credsMissing.joinToString(", "))
+    CredField("Utente VPN (codice fiscale)", vpnUser) { vpnUser = it }
+    CredField("Password VPN", vpnPassword, secret = true) { vpnPassword = it }
+    CredField("Utente SSH", sshUser) { sshUser = it }
+    CredField("Chiave privata SSH", sshKey, lines = 4) { sshKey = it }
+    Btn("Scegli file della chiave", { picker.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth(), filled = false)
+    Btn(
+        "Salva",
+        {
+            actions.saveCredentials(vpnUser, vpnPassword, sshUser, sshKey)
+            vpnUser = ""; vpnPassword = ""; sshUser = ""; sshKey = ""
+        },
+        Modifier.fillMaxWidth(),
+        enabled = listOf(vpnUser, vpnPassword, sshUser, sshKey).any { it.isNotBlank() },
+    )
+}
+
+@Composable
+private fun CredField(label: String, value: String, secret: Boolean = false, lines: Int = 1, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value, onChange, Modifier.fillMaxWidth(), label = { Text(label) },
+        singleLine = lines == 1, minLines = lines, maxLines = if (lines == 1) 1 else 8,
+        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text, autoCorrectEnabled = false),
+    )
+}
 
 @Composable
 private fun UpdateSection(ui: UiState, actions: Actions) {

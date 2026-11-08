@@ -95,7 +95,7 @@ fun AppRoot(ui: UiState, actions: Actions, snackbar: SnackbarHostState) {
     ) { pad ->
         val m = Modifier.padding(pad)
         when (tab) {
-            Tab.DASHBOARD -> DashboardScreen(ui, actions, m) { tab = Tab.MORE; moreSub = "Sincronizza" }
+            Tab.DASHBOARD -> DashboardScreen(ui, actions, m) { tab = Tab.MORE; moreSub = it }
             Tab.QUEUE -> QueueScreen(ui, actions, snackbar, m)
             Tab.LOG -> LogScreen(ui, m)
             Tab.AUTOMATIONS -> AutomationsScreen(ui, actions, m)

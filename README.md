@@ -28,6 +28,8 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum), also with the app closed. Exclude the
   app from battery optimization when asked, otherwise Android may skip them. Only a real credential rejection suspends
   the automations; timeouts and network errors just wait for the next slot.
+- **Credentials**: Altro > Credenziali stores the VPN user/password and the ssh user/key (typed, pasted or picked from a
+  file) encrypted on the phone; only the fields you fill in change. The public release comes without any.
 - **Updates**: Altro > Aggiornamenti checks the latest GitHub release, downloads the apk (checksum verified) and hands it
   to the system installer.
 - **Notifications**: a failed scheduled tick or sync, each job that ends (done or failed), and when every job is finished.
