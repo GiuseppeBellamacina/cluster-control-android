@@ -123,6 +123,7 @@ class ClusterApp : Application() {
         // Android's stripped "BC" would shadow the full one (no Ed25519 before API 33)
         Security.removeProvider("BC")
         Security.insertProviderAt(BouncyCastleProvider(), 1)
+        Seed.init(this)
         graph = Graph(this)
         Thread { graph.scheduler.sync() }.start()
         ProcessLifecycleOwner.get().lifecycle.addObserver(

@@ -34,7 +34,10 @@ class AppLogicTest {
     fun classifyErrors() {
         assertEquals(ErrorKind.AUTH, classify(JSchException("Auth fail for methods 'publickey'")).kind)
         assertEquals(ErrorKind.AUTH, classify(HostKeyChangedException("h")).kind)
-        assertEquals(ErrorKind.AUTH, classify(SstpException("MS-CHAPv2 failure E=691")).kind)
+        assertEquals(ErrorKind.AUTH, classify(SstpException("MS-CHAPv2 authentication failed (E=691)")).kind)
+        // a timeout or abort during the auth stage is a network problem: it must not suspend the automations
+        assertEquals(ErrorKind.UNREACHABLE, classify(SstpException("timeout at stage 'auth'")).kind)
+        assertEquals(ErrorKind.UNREACHABLE, classify(SstpException("server sent Call Abort (2) at stage 'auth'")).kind)
         assertEquals(ErrorKind.UNREACHABLE, classify(JSchException("timeout: socket is not established")).kind)
         assertEquals(ErrorKind.HELPER_MISSING, classify(HelperMissingException()).kind)
         assertEquals(ErrorKind.CONFIG, classify(ConfigMissingException()).kind)

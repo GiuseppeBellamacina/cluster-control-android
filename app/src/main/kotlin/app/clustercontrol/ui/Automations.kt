@@ -60,6 +60,9 @@ fun AutomationsScreen(ui: UiState, actions: Actions, modifier: Modifier) {
     ) {
         Header("Automazioni") { LinkText("Nuova") { adding = true } }
         if (ui.suspended) Banner(ui.suspendReason ?: "Automatismi sospesi", "Riprendi automatismi", actions::resumeAuto)
+        if (ui.batteryRestricted && ui.schedules.any { it.enabled }) {
+            Banner("Ottimizzazione batteria attiva: con l'app chiusa i tick possono saltare.", "Escludi", actions::requestBatteryExemption)
+        }
         ui.schedules.forEach { s ->
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {

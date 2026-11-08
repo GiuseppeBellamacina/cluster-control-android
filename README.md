@@ -25,7 +25,11 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Dashboard**: active job with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
 - **Queue**: drag and drop reorder, swipe to delete with undo, add jobs or presets from a sheet, pause, kill.
 - **Log**: raw log of the active job.
-- **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum).
+- **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum), also with the app closed. Exclude the
+  app from battery optimization when asked, otherwise Android may skip them. Only a real credential rejection suspends
+  the automations; timeouts and network errors just wait for the next slot.
+- **Updates**: Altro > Aggiornamenti checks the latest GitHub release, downloads the apk (checksum verified) and hands it
+  to the system installer.
 - **Notifications**: a failed scheduled tick or sync, each job that ends (done or failed), and when every job is finished.
 - **Sync**: keeps the cluster identical to the GitHub repo for what it needs to run (the `.py` files of `src/`, the `.sh`
   scripts of `cluster/`, `experiments/configs/*.yaml`, `main.py`, `pyproject.toml`), the same set as `sync_cluster.ps1`.
@@ -54,7 +58,16 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 ```
 
 `secrets.properties` holds the VPN credentials and the ssh key, which are baked into **your** APK in clear text:
-never share the APK and never commit that file. Without it the app builds but has nothing to connect with.
+never share that APK and never commit that file. On first launch the app stores them encrypted, so a build without them
+keeps working over an install that has them.
+
+```powershell
+.\release.ps1 -Publish -Notes "..."   # public apk WITHOUT credentials, leak check, tag + GitHub release, then your own apk
+```
+
+The GitHub release carries the credential-free apk. All builds are signed with the debug key kept in the
+`cc-android-home` Docker volume, so Android installs a release over your app (lose the volume and you must reinstall once).
+Install your own credentialed build first, later versions come from Altro > Aggiornamenti.
 
 `sstp-lab.ps1` and `sstp-e2e.ps1` exercise the tunnel against the real VPN server (one login per run, credentials
 via `docker --env-file`).

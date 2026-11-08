@@ -25,7 +25,7 @@ fun classify(e: Throwable): ClusterError {
         chain.any { it is HostKeyChangedException } -> ClusterError(ErrorKind.AUTH, "Host key del cluster cambiata")
         chain.any { it is JSchException && AUTH_MARKERS.any { m -> it.message.orEmpty().lowercase().contains(m) } } ->
             ClusterError(ErrorKind.AUTH, "Autenticazione SSH fallita")
-        chain.any { it is SstpException && it.message.orEmpty().lowercase().let { m -> "chap" in m || "auth" in m } } ->
+        chain.any { it is SstpException && "authentication failed" in it.message.orEmpty().lowercase() } ->
             ClusterError(ErrorKind.AUTH, "Autenticazione VPN fallita")
         chain.any { it is HelperMissingException } -> ClusterError(ErrorKind.HELPER_MISSING, "Helper assente sul cluster")
         chain.any { it is ConfigMissingException } -> ClusterError(ErrorKind.CONFIG, chain.first { it is ConfigMissingException }.message!!)

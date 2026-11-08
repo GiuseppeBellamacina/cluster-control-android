@@ -315,3 +315,32 @@ class TimingAndNamesTest {
         }
     }
 }
+
+class UpdatesTest {
+    @Test
+    fun versionComparison() {
+        assertTrue(Updates.isNewer("0.3.0", "0.2.2"))
+        assertTrue(Updates.isNewer("v0.10.0", "0.9.9"))
+        assertTrue(Updates.isNewer("1.0", "0.9.9"))
+        assertTrue(!Updates.isNewer("0.2.2", "0.2.2"))
+        assertTrue(!Updates.isNewer("v1.0", "1.0.0"))
+        assertTrue(!Updates.isNewer("0.2.1", "0.2.2"))
+        assertTrue(!Updates.isNewer("0.3.0-rc1", "0.3.0"))
+    }
+
+    @Test
+    fun parsesTheLatestRelease() {
+        val json = """{"tag_name":"v0.3.0","body":"  Notes\n- one ","assets":[
+            {"name":"notes.txt","browser_download_url":"https://x/notes.txt","size":1},
+            {"name":"ClusterControl-0.3.0.apk","browser_download_url":"https://x/a.apk","size":13000000,"digest":"sha256:ABCDEF"}]}"""
+        val r = assertNotNull(Updates.parseLatest(json))
+        assertEquals("0.3.0", r.version)
+        assertEquals("https://x/a.apk", r.apkUrl)
+        assertEquals(13_000_000L, r.sizeBytes)
+        assertEquals("abcdef", r.sha256)
+        assertEquals("Notes\n- one", r.notes)
+        // no digest field and no apk asset
+        assertNull(Updates.parseLatest("""{"tag_name":"v1","assets":[{"name":"a.apk","browser_download_url":"u"}]}""")!!.sha256)
+        assertNull(Updates.parseLatest("""{"tag_name":"v1","assets":[]}"""))
+    }
+}

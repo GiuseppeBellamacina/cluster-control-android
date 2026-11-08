@@ -6,7 +6,8 @@ val secrets = Properties().apply {
     rootProject.file("secrets.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
-fun seed(key: String): String = secrets.getProperty(key)?.let { String(Base64.getDecoder().decode(it)) } ?: ""
+// -PnoSeed builds the public release: no credentials inside the apk
+fun seed(key: String): String = if (project.hasProperty("noSeed")) "" else secrets.getProperty(key)?.let { String(Base64.getDecoder().decode(it)) } ?: ""
 
 fun lit(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "").replace("\n", "\\n") + "\""
 
@@ -24,8 +25,8 @@ android {
         applicationId = "app.clustercontrol"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.2.2"
+        versionCode = 6
+        versionName = "0.3.0"
         for ((field, key) in listOf(
             "SEED_VPN_HOST" to "vpnHost", "SEED_VPN_USER" to "vpnUser", "SEED_VPN_PASSWORD" to "vpnPassword",
             "SEED_SSH_HOST" to "sshHost", "SEED_SSH_USER" to "sshUser", "SEED_SSH_KEY" to "sshKey",

@@ -107,6 +107,11 @@ fun AppRoot(ui: UiState, actions: Actions, snackbar: SnackbarHostState) {
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
 
+    override fun onResume() {
+        super.onResume()
+        vm.refreshBattery()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // light UI only: dark status and navigation bar icons

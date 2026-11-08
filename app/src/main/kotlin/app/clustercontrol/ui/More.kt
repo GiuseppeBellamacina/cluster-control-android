@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,12 +34,13 @@ import androidx.compose.ui.unit.sp
 import app.clustercontrol.Actions
 import app.clustercontrol.Op
 import app.clustercontrol.Seed
+import app.clustercontrol.BuildConfig
 import app.clustercontrol.StepState
 import app.clustercontrol.UiState
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.formatAgo
 
-val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico")
+val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico", "Aggiornamenti")
 
 @Composable
 fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> Unit, modifier: Modifier) {
@@ -53,6 +55,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
                     if (i > 0) Sep()
                     ListRow(onClick = { open(name) }) {
                         Text(name, Modifier.weight(1f), fontSize = 15.sp)
+                        if (name == "Aggiornamenti" && ui.update.newer) Chip("nuova", Tone.GREEN)
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = C.Faint)
                     }
                 }
@@ -63,6 +66,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
         when (sub) {
             "Sincronizza" -> SyncSection(ui, actions)
             "Connessione" -> ConnectionSection(ui, actions)
+            "Aggiornamenti" -> UpdateSection(ui, actions)
             else -> HistorySection(ui, actions)
         }
     }
@@ -106,6 +110,32 @@ private fun SyncSection(ui: UiState, actions: Actions) {
 }
 
 private const val MAX_SHOWN = 8
+
+@Composable
+private fun UpdateSection(ui: UiState, actions: Actions) {
+    val u = ui.update
+    LaunchedEffect(Unit) { if (!u.checked) actions.checkUpdate() }
+    ListCard {
+        ListRow {
+            Text("Installata", Modifier.weight(1f), fontSize = 15.sp)
+            Text(BuildConfig.VERSION_NAME, fontSize = 14.sp, color = C.Faint)
+        }
+        Sep()
+        ListRow {
+            Text("Ultima", Modifier.weight(1f), fontSize = 15.sp)
+            Text(u.release?.version ?: "-", fontSize = 14.sp, color = C.Faint)
+        }
+    }
+    val progress = u.progress
+    when {
+        progress != null -> LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth(), color = C.Accent, trackColor = C.Track)
+        u.newer -> Btn("Scarica e installa ${u.release?.version}", actions::installUpdate, Modifier.fillMaxWidth())
+        else -> Btn("Controlla aggiornamenti", actions::checkUpdate, Modifier.fillMaxWidth(), busy = u.checking)
+    }
+    if (u.newer) u.release?.notes?.takeIf { it.isNotBlank() }?.let { Caption(it.lines().take(4).joinToString("\n")) }
+    if (u.checked && !u.newer && u.error == null) Caption("Sei all'ultima versione.")
+    u.error?.let { Caption(it) }
+}
 
 @Composable
 private fun ConnectionSection(ui: UiState, actions: Actions) {

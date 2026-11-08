@@ -1,6 +1,10 @@
 package app.clustercontrol
 
 import android.app.Application
+import android.provider.Settings
+import android.os.PowerManager
+import android.net.Uri
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.clustercontrol.core.ConfigCatalog
@@ -8,6 +12,8 @@ import app.clustercontrol.core.ConfigCell
 import app.clustercontrol.core.GithubFetcher
 import app.clustercontrol.core.JobEntry
 import app.clustercontrol.core.Point
+import app.clustercontrol.core.Release
+import app.clustercontrol.core.Updates
 import app.clustercontrol.core.Preset
 import app.clustercontrol.core.Schedule
 import app.clustercontrol.core.SyncStatus
@@ -36,6 +42,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class ScriptsUi(val status: SyncStatus? = null, val busy: Boolean = false, val result: String? = null)
 
+data class UpdateUi(
+    val checking: Boolean = false,
+    val release: Release? = null,
+    val newer: Boolean = false,
+    val progress: Float? = null,
+    val error: String? = null,
+    val checked: Boolean = false,
+)
+
 data class ConnUi(val steps: List<ConnStep> = emptyList(), val running: Boolean = false)
 
 data class UiState(
@@ -57,6 +72,8 @@ data class UiState(
     val catalogError: String? = null,
     val scripts: ScriptsUi = ScriptsUi(),
     val conn: ConnUi = ConnUi(),
+    val batteryRestricted: Boolean = false,
+    val update: UpdateUi = UpdateUi(),
 )
 
 /** What the screens can ask for (the view model implements it; previews use a no-op). */
@@ -80,6 +97,9 @@ interface Actions {
     fun updateScripts()
     fun testConnection()
     fun clearHistory()
+    fun requestBatteryExemption()
+    fun checkUpdate()
+    fun installUpdate()
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
@@ -103,6 +123,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         )
 
     init {
+        checkUpdate()
         viewModelScope.launch {
             g.live.state.map { it.snapshot?.queue }.distinctUntilChanged().collect { q ->
                 if (q != null) {
@@ -265,6 +286,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
 
     override fun runSchedule(s: Schedule) {
         launchBusy { report(g.ops.run(s.action, s.name, auto = false), "${s.name}: eseguito") }
+    }
+
+    /** Called on resume: the owner may have changed it in the system dialog. */
+    fun refreshBattery() {
+        val app = getApplication<Application>()
+        val ignoring = app.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(app.packageName)
+        local.update { it.copy(batteryRestricted = !ignoring) }
+    }
+
+    override fun requestBatteryExemption() {
+        val app = getApplication<Application>()
+        app.startActivity(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${app.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    private val updater = Updater(app)
+
+    override fun checkUpdate() {
+        viewModelScope.launch(Dispatchers.IO) {
+            local.update { it.copy(update = it.update.copy(checking = true, error = null)) }
+            val r = runCatching { Updates.latest(Seed.APP_REPO) }
+            val rel = r.getOrNull()
+            val newer = rel != null && Updates.isNewer(rel.version, BuildConfig.VERSION_NAME)
+            local.update { it.copy(update = UpdateUi(release = rel, newer = newer, checked = true, error = r.exceptionOrNull()?.let { "Controllo non riuscito" })) }
+            if (newer) _events.tryEmit("Nuova versione ${rel!!.version}: Altro > Aggiornamenti")
+        }
+    }
+
+    override fun installUpdate() {
+        val rel = local.value.update.release ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            local.update { it.copy(update = it.update.copy(progress = 0f, error = null)) }
+            try {
+                var last = -1
+                val apk = updater.download(rel) { p ->
+                    val pct = (p * 100).toInt()
+                    if (pct != last) { last = pct; local.update { it.copy(update = it.update.copy(progress = p)) } }
+                }
+                local.update { it.copy(update = it.update.copy(progress = null)) }
+                if (!updater.install(apk)) _events.tryEmit("Consenti a ClusterControl di installare app, poi riprova")
+            } catch (e: Exception) {
+                local.update { it.copy(update = it.update.copy(progress = null, error = "Download non riuscito")) }
+            }
+        }
     }
 
     override fun resumeAuto() {
