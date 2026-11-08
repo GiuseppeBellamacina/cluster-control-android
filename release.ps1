@@ -15,6 +15,13 @@ $apk = Join-Path $proj "dist\ClusterControl-$ver.apk"
 
 & "$proj\gradle.ps1" :app:assembleDebug
 Copy-Item "$proj\dist\clustercontrol-debug.apk" $apk -Force
+
+# a release must never be debuggable (that would give adb / run-as access to the app's data)
+$dir = Split-Path $apk
+$leaf = Split-Path $apk -Leaf
+$debuggable = docker run --rm -v "${dir}:/d:ro" cc-android-build bash -c "/opt/android-sdk/build-tools/35.0.0/aapt2 dump badging /d/$leaf | grep -c application-debuggable"
+if ([int]("$debuggable".Trim()) -ne 0) { throw "the apk is debuggable: not publishing" }
+Write-Host "not debuggable: ok" -ForegroundColor Green
 Write-Host "APK: $apk" -ForegroundColor Green
 
 if ($Publish) {
