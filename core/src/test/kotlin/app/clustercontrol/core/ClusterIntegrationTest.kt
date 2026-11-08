@@ -49,14 +49,14 @@ class ClusterIntegrationTest {
     fun fullClusterFlow() {
         val cfg = itConfig()
         ClusterSession.open(cfg, DirectTransport, memoryKeys).use { s ->
-            val helper = HelperApi(s)
+            val helper = HelperApi(s, "~/neuro_symbolic_t2g")
 
             // 1. empty cluster: the helper is missing
             assertFailsWith<HelperMissingException> { helper.status() }
 
             // 2. sync installs src + scripts + helper + configs; a second run changes nothing
             val engine = SyncEngine(DirFetcher(File(System.getenv("CC_IT_REPO_DIR"))), "owner/repo")
-            val remote = SshRemoteStore(s)
+            val remote = SshRemoteStore(s, "neuro_symbolic_t2g")
             val first = engine.apply(remote)
             assertTrue(first.errors.isEmpty(), "sync errors: ${first.errors}")
             assertTrue("cluster/cluster_helper.sh" in first.updated)

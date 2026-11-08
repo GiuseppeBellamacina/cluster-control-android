@@ -99,6 +99,8 @@ class ActionWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 }
 
 class Graph(ctx: Context) {
+    val lockPrefs = ctx.getSharedPreferences("app_lock", Context.MODE_PRIVATE)
+    val lock = LockPolicy(lockPrefs.getBoolean("enabled", true))
     val stores = Stores(ctx.filesDir)
     val notifier = AndroidNotifier(ctx)
     val scheduler = WorkScheduler(ctx, stores)
@@ -123,14 +125,14 @@ class ClusterApp : Application() {
         // Android's stripped "BC" would shadow the full one (no Ed25519 before API 33)
         Security.removeProvider("BC")
         Security.insertProviderAt(BouncyCastleProvider(), 1)
-        Seed.init(this)
+        Creds.init(this)
         graph = Graph(this)
         Thread { graph.scheduler.sync() }.start()
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             LifecycleEventObserver { _, event ->
                 when (event) {
-                    Lifecycle.Event.ON_START -> graph.live.start()
-                    Lifecycle.Event.ON_STOP -> graph.live.stop()
+                    Lifecycle.Event.ON_START -> { graph.live.start(); graph.lock.onReturn() }
+                    Lifecycle.Event.ON_STOP -> { graph.live.stop(); graph.lock.onLeave() }
                     else -> {}
                 }
             },

@@ -104,7 +104,7 @@ interface RemoteStore {
     fun putAll(files: List<RemoteFile>)
 }
 
-class SshRemoteStore(private val session: ClusterSession, private val root: String = "neuro_symbolic_t2g") : RemoteStore {
+class SshRemoteStore(private val session: ClusterSession, private val root: String) : RemoteStore {
     private fun shq(v: String) = "'" + v.replace("'", "'\\''") + "'"
 
     // git's blob id from plain shell tools: sha1("blob <size>\0" + content); the whole check is ONE command

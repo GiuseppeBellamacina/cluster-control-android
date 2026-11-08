@@ -74,7 +74,10 @@ data class UiState(
     val conn: ConnUi = ConnUi(),
     val batteryRestricted: Boolean = false,
     val update: UpdateUi = UpdateUi(),
-    val credsMissing: List<String> = emptyList(),
+    val configMissing: List<String> = emptyList(),
+    val cfg: ConfigView = ConfigView(),
+    val lockEnabled: Boolean = true,
+    val lockAvailable: Boolean = true,
 )
 
 /** What the screens can ask for (the view model implements it; previews use a no-op). */
@@ -101,7 +104,8 @@ interface Actions {
     fun requestBatteryExemption()
     fun checkUpdate()
     fun installUpdate()
-    fun saveCredentials(vpnUser: String, vpnPassword: String, sshUser: String, sshKey: String)
+    fun saveConfig(input: ConfigInput)
+    fun setLockEnabled(on: Boolean)
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
@@ -126,7 +130,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
 
     init {
         checkUpdate()
-        local.update { it.copy(credsMissing = Seed.missing) }
+        local.update { it.copy(configMissing = Creds.missing, cfg = Creds.view(), lockEnabled = g.lock.enabled) }
         viewModelScope.launch {
             g.live.state.map { it.snapshot?.queue }.distinctUntilChanged().collect { q ->
                 if (q != null) {
@@ -259,12 +263,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
 
     override fun loadCatalog() {
         if (local.value.catalogLoading) return
+        if (Creds.repo.isBlank()) {
+            local.update { it.copy(catalogError = "Repo GitHub non configurato") }
+            return
+        }
         local.update { it.copy(catalogLoading = true) }
         viewModelScope.launch {
             val (cells, presets) = withContext(Dispatchers.IO) {
                 val f = GithubFetcher()
-                val tree = runCatching { f.tree(Seed.REPO, Seed.BRANCH) }.getOrNull()?.let(ConfigCatalog::fromTree)
-                val yaml = runCatching { String(f.fetch(Seed.REPO, Seed.BRANCH, SyncManifest.PRESETS_PATH), Charsets.UTF_8) }.getOrNull()
+                val tree = runCatching { f.tree(Creds.repo, Creds.branch) }.getOrNull()?.let(ConfigCatalog::fromTree)
+                val yaml = runCatching { String(f.fetch(Creds.repo, Creds.branch, SyncManifest.PRESETS_PATH), Charsets.UTF_8) }.getOrNull()
                 tree?.let { c -> g.stores.cache(CATALOG_CACHE, c.joinToString("\n") { it.path }) }
                 yaml?.let { g.stores.cache(PRESETS_CACHE, it) }
                 tree to yaml?.let { runCatching { parsePresets(it) }.getOrNull() }
@@ -291,11 +299,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         launchBusy { report(g.ops.run(s.action, s.name, auto = false), "${s.name}: eseguito") }
     }
 
-    /** Called on resume: the owner may have changed it in the system dialog. */
-    fun refreshBattery() {
+    /** Called on resume: the owner may have changed battery or screen-lock settings in the system. */
+    fun refreshDevice() {
         val app = getApplication<Application>()
         val ignoring = app.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(app.packageName)
-        local.update { it.copy(batteryRestricted = !ignoring) }
+        local.update { it.copy(batteryRestricted = !ignoring, lockAvailable = LockAuth.available(app)) }
     }
 
     override fun requestBatteryExemption() {
@@ -311,7 +319,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
     override fun checkUpdate() {
         viewModelScope.launch(Dispatchers.IO) {
             local.update { it.copy(update = it.update.copy(checking = true, error = null)) }
-            val r = runCatching { Updates.latest(Seed.APP_REPO) }
+            val r = runCatching { Updates.latest(Creds.APP_REPO) }
             val rel = r.getOrNull()
             val newer = rel != null && Updates.isNewer(rel.version, BuildConfig.VERSION_NAME)
             local.update { it.copy(update = UpdateUi(release = rel, newer = newer, checked = true, error = r.exceptionOrNull()?.let { "Controllo non riuscito" })) }
@@ -337,20 +345,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         }
     }
 
-    override fun saveCredentials(vpnUser: String, vpnPassword: String, sshUser: String, sshKey: String) {
-        if (sshKey.isNotBlank() && "PRIVATE KEY" !in sshKey) {
-            _events.tryEmit("La chiave non sembra una chiave privata")
-            return
-        }
+    override fun saveConfig(input: ConfigInput) {
+        configError(input)?.let { _events.tryEmit(it); return }
         viewModelScope.launch(Dispatchers.IO) {
-            Seed.save(vpnUser, vpnPassword, sshUser, sshKey)
-            // new credentials: a suspension caused by the old ones is over
+            Creds.save(input)
+            // a new configuration ends a suspension caused by the old one
             g.stores.updateState { it.copy(autoSuspended = false, suspendReason = null) }
             g.scheduler.sync()
-            local.update { it.copy(credsMissing = Seed.missing) }
-            _events.tryEmit("Credenziali salvate")
+            local.update { it.copy(configMissing = Creds.missing, cfg = Creds.view()) }
+            _events.tryEmit("Configurazione salvata")
             g.live.refresh()
         }
+    }
+
+    override fun setLockEnabled(on: Boolean) {
+        g.lockPrefs.edit().putBoolean("enabled", on).apply()
+        g.lock.enable(on)
+        local.update { it.copy(lockEnabled = on) }
     }
 
     override fun resumeAuto() {

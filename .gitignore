@@ -6,4 +6,3 @@ local.properties
 *.iml
 .env
 .kotlin/
-secrets.properties

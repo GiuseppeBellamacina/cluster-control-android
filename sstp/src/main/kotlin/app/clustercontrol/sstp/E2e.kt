@@ -35,10 +35,10 @@ fun main() {
     try {
         ClusterSession.open(cfg, transport, keys, timeoutMs = 45_000).use { s ->
             println("ssh: authenticated, echo -> " + s.exec("echo ok").stdout.trim())
-            val snap = HelperApi(s).status()
+            val snap = HelperApi(s, "~/neuro_symbolic_t2g").status()
             println("helper status: active=${snap.active != null} queue=${snap.queue.size} stopped=${snap.stopped}")
             // read-only: compares the repo on GitHub with the cluster, uploads nothing
-            val sync = SyncEngine(GithubFetcher(), "GiuseppeBellamacina/neuro_symbolic_t2g").status(SshRemoteStore(s))
+            val sync = SyncEngine(GithubFetcher(), "GiuseppeBellamacina/neuro_symbolic_t2g").status(SshRemoteStore(s, "neuro_symbolic_t2g"))
             println("sync: compared ${sync.checked} files, ${sync.changes.size} to update (${sync.changes.count { it.isNew }} new)")
             sync.changes.take(12).forEach { println("  ${if (it.isNew) "new     " else "modified"} ${it.path}") }
         }

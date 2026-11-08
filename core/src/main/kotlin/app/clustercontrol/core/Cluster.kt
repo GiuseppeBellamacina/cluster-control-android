@@ -36,7 +36,6 @@ data class ClusterConfig(
     val privateKeyPem: String,
     val passphrase: String? = null,
     val port: Int = 22,
-    val remoteRoot: String = "~/neuro_symbolic_t2g",
 )
 
 class RemoteFile(val relPath: String, val bytes: ByteArray, val executable: Boolean)
@@ -137,7 +136,7 @@ class NoActiveJobException : Exception("no active job")
 data class TickResult(val snapshot: Snapshot, val tickFailed: Boolean)
 
 /** The cluster_helper.sh protocol, one ssh exec per call (the same subcommands the Render driver uses). */
-class HelperApi(private val session: ClusterSession, remoteRoot: String = "~/neuro_symbolic_t2g") {
+class HelperApi(private val session: ClusterSession, remoteRoot: String) {
     private val helper = "$remoteRoot/cluster/cluster_helper.sh"
 
     private fun run(sub: String, arg: String? = null, timeoutMs: Int = 90_000): ExecResult {

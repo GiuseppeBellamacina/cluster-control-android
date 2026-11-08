@@ -23,7 +23,7 @@ class ClusterOps(
     private val stores: Stores,
     private val recorder: Recorder,
 ) {
-    private fun engine() = SyncEngine(GithubFetcher(), Seed.REPO, Seed.BRANCH)
+    private fun engine() = SyncEngine(GithubFetcher(), Creds.repo, Creds.branch)
 
     /** [block] followed by a fresh monitor, so the log and progress are current right after the change. */
     private suspend fun mutating(auto: Boolean, block: (ClusterSession, HelperApi) -> Snapshot): Snapshot =
@@ -38,7 +38,7 @@ class ClusterOps(
 
     /** [leaveCodeAlone]: a job is running, so src/, main.py and pyproject.toml wait for a manual sync. */
     private fun syncScripts(session: ClusterSession, leaveCodeAlone: Boolean = false): String {
-        val r = engine().apply(SshRemoteStore(session), skip = { leaveCodeAlone && SyncManifest.isCode(it) })
+        val r = engine().apply(SshRemoteStore(session, Creds.projectDir), skip = { leaveCodeAlone && SyncManifest.isCode(it) })
         if (r.errors.isNotEmpty()) throw ActionFailed("Sync: ${r.errors.size} errori (${r.errors.first()})")
         val base = if (r.updated.isEmpty()) "Sync: tutto aggiornato" else "Sync: ${r.updated.size} file aggiornati"
         return if (r.skipped.isEmpty()) base else "$base; ${r.skipped.size} di codice rimandati (job in corso)"
@@ -83,7 +83,7 @@ class ClusterOps(
         ok
     }
 
-    suspend fun syncStatus(): SyncStatus = live.exec { s, _ -> engine().status(SshRemoteStore(s)) }
+    suspend fun syncStatus(): SyncStatus = live.exec { s, _ -> engine().status(SshRemoteStore(s, Creds.projectDir)) }
 
     /** VPN -> SSH -> Cluster, stopping at the first failure; [onSteps] gets every intermediate state. */
     suspend fun testConnection(onSteps: (List<ConnStep>) -> Unit) = recorder.record(Op.TEST, "manuale", false) {
@@ -115,7 +115,7 @@ class ClusterOps(
                 show(2, ConnStep("Cluster", StepState.RUNNING))
                 stage = 2
                 t0 = System.currentTimeMillis()
-                HelperApi(session).status()
+                HelperApi(session, Creds.remoteRoot).status()
                 show(2, ConnStep("Cluster", StepState.OK, System.currentTimeMillis() - t0))
             }
         } catch (e: Exception) {

@@ -1,9 +1,9 @@
-# Public release: builds the apk WITHOUT credentials, checks that none leaked into it, optionally publishes it as a
-# GitHub release (the in-app updater downloads that asset), then rebuilds YOUR apk (with credentials) for the phone.
-#   .\release.ps1                          # build + leak check only
+# Builds the release apk and optionally publishes it as a GitHub release (the in-app updater downloads that asset).
+#   .\release.ps1                          # build only -> dist\ClusterControl-<version>.apk
 #   .\release.ps1 -Publish -Notes "..."    # + git tag v<versionName> + GitHub release
-# The apk is signed with the debug key kept in the cc-android-home Docker volume: every build (yours and the release)
-# has the same signature, which is what lets Android install a release over your app.
+# The apk carries no credentials (they are typed in the app). It is signed with the debug key kept in the
+# cc-android-home Docker volume: every build has the same signature, which is what lets Android install a
+# release over the installed app.
 param(
     [switch]$Publish,
     [string]$Notes = ""
@@ -13,35 +13,9 @@ $proj = $PSScriptRoot
 $ver = [regex]::Match((Get-Content "$proj\app\build.gradle.kts" -Raw), 'versionName = "([^"]+)"').Groups[1].Value
 $apk = Join-Path $proj "dist\ClusterControl-$ver.apk"
 
-& "$proj\gradle.ps1" :app:assembleDebug -PnoSeed
+& "$proj\gradle.ps1" :app:assembleDebug
 Copy-Item "$proj\dist\clustercontrol-debug.apk" $apk -Force
-
-# no credential may be inside the public apk (values come from secrets.properties, base64; never printed)
-$secrets = Join-Path $proj "secrets.properties"
-if (Test-Path $secrets) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    # hosts are public (they are also the defaults in the code): only the secrets are checked, by field name
-    $needles = @{}
-    foreach ($line in Get-Content $secrets) {
-        $name, $b64 = $line.Split('=', 2)
-        if ($name -notin "vpnUser", "vpnPassword", "sshUser", "sshKey") { continue }
-        $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
-        $needles[$name] = ($text -split "`r?`n" | Sort-Object Length -Descending | Select-Object -First 1)  # longest line: a key body, a password...
-    }
-    $zip = [IO.Compression.ZipFile]::OpenRead($apk)
-    try {
-        foreach ($entry in $zip.Entries | Where-Object { $_.Name -like "*.dex" }) {
-            $ms = New-Object IO.MemoryStream
-            $s = $entry.Open(); $s.CopyTo($ms); $s.Dispose()
-            $content = [Text.Encoding]::Latin1.GetString($ms.ToArray())
-            foreach ($name in $needles.Keys) {
-                if ($needles[$name] -and $content.Contains($needles[$name])) { throw "LEAK: '$name' is inside $apk ($($entry.Name)); not publishing" }
-            }
-        }
-    }
-    finally { $zip.Dispose() }
-    Write-Host "leak check passed: no credential in the release apk" -ForegroundColor Green
-}
+Write-Host "APK: $apk" -ForegroundColor Green
 
 if ($Publish) {
     $tag = "v$ver"
@@ -49,5 +23,3 @@ if ($Publish) {
     git push origin $tag
     gh release create $tag $apk --title "ClusterControl $ver" --notes $Notes
 }
-
-& "$proj\build.ps1"   # your own apk, with credentials, for the phone

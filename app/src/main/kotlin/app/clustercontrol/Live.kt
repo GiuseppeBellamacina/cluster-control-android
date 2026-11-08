@@ -1,6 +1,7 @@
 package app.clustercontrol
 
 import app.clustercontrol.core.ClusterConfig
+import app.clustercontrol.core.DirectTransport
 import app.clustercontrol.core.ClusterSession
 import app.clustercontrol.core.HelperApi
 import app.clustercontrol.core.HostKeys
@@ -26,15 +27,16 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Opens sessions to the cluster with the credentials baked into the APK. Blocking. */
+/** Opens sessions to the cluster with the configuration the owner stored. Blocking. */
 class Connector(private val hostKeys: HostKeys) {
     fun config(): ClusterConfig {
-        if (!Seed.embedded) throw ConfigMissingException(Seed.missing)
-        return ClusterConfig(Seed.host, Seed.sshUser, Seed.sshKey, null, Seed.SSH_PORT)
+        if (!Creds.complete) throw ConfigMissingException(Creds.connectionMissing)
+        return ClusterConfig(Creds.host, Creds.sshUser, Creds.sshKey, null, Creds.sshPort)
     }
 
     fun transport(): Transport {
-        val sstp = SstpTransport(Seed.vpn, Seed.vpnUser, Seed.vpnPassword)
+        if (!Creds.useVpn) return DirectTransport
+        val sstp = SstpTransport(Creds.vpnHost, Creds.vpnUser, Creds.vpnPassword)
         return object : Transport {
             override fun open(host: String, port: Int, timeoutMs: Int): java.net.Socket = sstp.openSocket(host, port)
         }
@@ -139,11 +141,11 @@ class LiveSession(
         withContext(Dispatchers.IO) {
             val live = session
             if (live == null && !keep) {
-                connector.open().use { block(it, HelperApi(it)) }
+                connector.open().use { block(it, HelperApi(it, Creds.remoteRoot)) }
             } else {
                 try {
                     val s = live ?: connect()
-                    block(s, HelperApi(s))
+                    block(s, HelperApi(s, Creds.remoteRoot))
                 } catch (e: Exception) {
                     if (classify(e).kind == ErrorKind.UNREACHABLE) dropSession()
                     throw e

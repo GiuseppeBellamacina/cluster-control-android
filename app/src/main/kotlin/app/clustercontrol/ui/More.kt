@@ -41,14 +41,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.clustercontrol.Actions
 import app.clustercontrol.Op
-import app.clustercontrol.Seed
 import app.clustercontrol.BuildConfig
+import app.clustercontrol.ConfigInput
 import app.clustercontrol.StepState
 import app.clustercontrol.UiState
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.formatAgo
 
-val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico", "Aggiornamenti", "Credenziali")
+val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico", "Aggiornamenti", "Configurazione", "Sicurezza")
 
 @Composable
 fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> Unit, modifier: Modifier) {
@@ -64,7 +64,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
                     ListRow(onClick = { open(name) }) {
                         Text(name, Modifier.weight(1f), fontSize = 15.sp)
                         if (name == "Aggiornamenti" && ui.update.newer) Chip("nuova", Tone.GREEN)
-                        if (name == "Credenziali" && ui.credsMissing.isNotEmpty()) Chip("mancano", Tone.RED)
+                        if (name == "Configurazione" && ui.configMissing.isNotEmpty()) Chip("mancano", Tone.RED)
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = C.Faint)
                     }
                 }
@@ -76,7 +76,8 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
             "Sincronizza" -> SyncSection(ui, actions)
             "Connessione" -> ConnectionSection(ui, actions)
             "Aggiornamenti" -> UpdateSection(ui, actions)
-            "Credenziali" -> CredentialsSection(ui, actions)
+            "Configurazione" -> ConfigSection(ui, actions)
+            "Sicurezza" -> SecuritySection(ui, actions)
             else -> HistorySection(ui, actions)
         }
     }
@@ -122,37 +123,89 @@ private fun SyncSection(ui: UiState, actions: Actions) {
 private const val MAX_SHOWN = 8
 
 @Composable
-private fun CredentialsSection(ui: UiState, actions: Actions) {
-    // plain remember, not rememberSaveable: secrets must not end up in the saved instance state
-    var vpnUser by remember { mutableStateOf("") }
-    var vpnPassword by remember { mutableStateOf("") }
-    var sshUser by remember { mutableStateOf("") }
-    var sshKey by remember { mutableStateOf("") }
-    val ctx = LocalContext.current
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { sshKey = ctx.contentResolver.openInputStream(it)?.use { s -> s.readBytes().take(16_384).toByteArray().toString(Charsets.UTF_8) }.orEmpty() }
+private fun SecuritySection(ui: UiState, actions: Actions) {
+    ListCard {
+        ListRow {
+            Text("Blocco con impronta o PIN", Modifier.weight(1f), fontSize = 15.sp)
+            GreenSwitch(ui.lockEnabled) { actions.setLockEnabled(it) }
+        }
     }
-    Caption(if (ui.credsMissing.isEmpty()) "Credenziali complete. Compila solo ciò che vuoi cambiare." else "Mancano: " + ui.credsMissing.joinToString(", "))
-    CredField("Utente VPN (codice fiscale)", vpnUser) { vpnUser = it }
-    CredField("Password VPN", vpnPassword, secret = true) { vpnPassword = it }
-    CredField("Utente SSH", sshUser) { sshUser = it }
-    CredField("Chiave privata SSH", sshKey, lines = 4) { sshKey = it }
-    Btn("Scegli file della chiave", { picker.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth(), filled = false)
-    Btn(
-        "Salva",
-        {
-            actions.saveCredentials(vpnUser, vpnPassword, sshUser, sshKey)
-            vpnUser = ""; vpnPassword = ""; sshUser = ""; sshKey = ""
-        },
-        Modifier.fillMaxWidth(),
-        enabled = listOf(vpnUser, vpnPassword, sshUser, sshKey).any { it.isNotBlank() },
+    Caption(
+        if (ui.lockAvailable) "Si riattiva dopo 30 secondi fuori dall'app. I tick in background continuano a funzionare."
+        else "Imposta un blocco schermo o un'impronta sul telefono per usarlo.",
     )
 }
 
 @Composable
-private fun CredField(label: String, value: String, secret: Boolean = false, lines: Int = 1, onChange: (String) -> Unit) {
+private fun ConfigSection(ui: UiState, actions: Actions) {
+    val c = ui.cfg
+    // plain remember (keyed on the stored values), not rememberSaveable: secrets must not end up in the saved instance state
+    var useVpn by remember(c) { mutableStateOf(c.useVpn) }
+    var vpnHost by remember(c) { mutableStateOf(c.vpnHost) }
+    var vpnUser by remember(c) { mutableStateOf(c.vpnUser) }
+    var vpnPassword by remember(c) { mutableStateOf("") }
+    var host by remember(c) { mutableStateOf(c.host) }
+    var port by remember(c) { mutableStateOf(c.port) }
+    var projectDir by remember(c) { mutableStateOf(c.projectDir) }
+    var sshUser by remember(c) { mutableStateOf(c.sshUser) }
+    var sshKey by remember(c) { mutableStateOf("") }
+    var repo by remember(c) { mutableStateOf(c.repo) }
+    var branch by remember(c) { mutableStateOf(c.branch) }
+    val ctx = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { sshKey = ctx.contentResolver.openInputStream(it)?.use { s -> s.readBytes().take(16_384).toByteArray().toString(Charsets.UTF_8) }.orEmpty() }
+    }
+    Caption(if (ui.configMissing.isEmpty()) "Configurazione completa. Tutto è salvato cifrato sul telefono." else "Mancano: " + ui.configMissing.joinToString(", "))
+
+    GroupTitle("Cluster")
+    CredField("Host del cluster", host, example = "cluster.example.edu") { host = it }
+    CredField("Porta ssh", port, example = "22") { port = it }
+    CredField("Cartella del progetto (nella home)", projectDir, example = "myproject") { projectDir = it }
+    CredField("Utente SSH", sshUser) { sshUser = it }
+    CredField("Chiave privata SSH", sshKey, lines = 4, note = if (c.hasKey) "Salvata: lascia vuoto per mantenerla" else null) { sshKey = it }
+    Btn("Scegli file della chiave", { picker.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth(), filled = false)
+
+    GroupTitle("VPN")
+    ListCard {
+        ListRow {
+            Text("Usa VPN (SSTP)", Modifier.weight(1f), fontSize = 15.sp)
+            GreenSwitch(useVpn) { useVpn = it }
+        }
+    }
+    if (useVpn) {
+        CredField("Host della VPN", vpnHost, example = "vpn.example.edu") { vpnHost = it }
+        CredField("Utente VPN", vpnUser) { vpnUser = it }
+        CredField("Password VPN", vpnPassword, secret = true, note = if (c.hasVpnPassword) "Salvata: lascia vuoto per mantenerla" else null) { vpnPassword = it }
+    }
+
+    GroupTitle("GitHub")
+    CredField("Repo del progetto", repo, example = "owner/repo") { repo = it }
+    CredField("Branch", branch, example = "main") { branch = it }
+
+    Btn(
+        "Salva",
+        { actions.saveConfig(ConfigInput(useVpn, vpnHost, vpnUser, vpnPassword, host, port, projectDir, sshUser, sshKey, repo, branch)) },
+        Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun GroupTitle(text: String) = Text(text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = C.Muted)
+
+@Composable
+private fun CredField(
+    label: String,
+    value: String,
+    example: String = "",
+    note: String? = null,
+    secret: Boolean = false,
+    lines: Int = 1,
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value, onChange, Modifier.fillMaxWidth(), label = { Text(label) },
+        placeholder = if (example.isEmpty()) null else ({ Text(example) }),
+        supportingText = note?.let { { Text(it) } },
         singleLine = lines == 1, minLines = lines, maxLines = if (lines == 1) 1 else 8,
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text, autoCorrectEnabled = false),
@@ -209,7 +262,7 @@ private fun ConnectionSection(ui: UiState, actions: Actions) {
             }
         }
     }
-    Caption("Dati incorporati: " + if (Seed.embedded) "sì" else "no")
+    Caption("Configurazione: " + if (ui.configMissing.isEmpty()) "completa" else "incompleta")
 }
 
 @Composable

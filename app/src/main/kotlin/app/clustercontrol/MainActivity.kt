@@ -4,7 +4,9 @@ import android.Manifest
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -50,6 +52,7 @@ import app.clustercontrol.ui.AppTheme
 import app.clustercontrol.ui.AutomationsScreen
 import app.clustercontrol.ui.C
 import app.clustercontrol.ui.DashboardScreen
+import app.clustercontrol.ui.LockScreen
 import app.clustercontrol.ui.LogScreen
 import app.clustercontrol.ui.MoreScreen
 import app.clustercontrol.ui.QueueScreen
@@ -104,12 +107,37 @@ fun AppRoot(ui: UiState, actions: Actions, snackbar: SnackbarHostState) {
     }
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val vm: MainViewModel by viewModels()
+    private var prompting = false
+
+    private fun authenticate() {
+        if (prompting) return
+        prompting = true
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("ClusterControl")
+            .setSubtitle("Sblocca per continuare")
+            .setAllowedAuthenticators(LockAuth.AUTHENTICATORS)
+            .build()
+        BiometricPrompt(
+            this, ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    prompting = false
+                    ClusterApp.graph.lock.unlock()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    prompting = false
+                }
+            },
+        ).authenticate(info)
+    }
 
     override fun onResume() {
         super.onResume()
-        vm.refreshBattery()
+        vm.refreshDevice()
+        if (ClusterApp.graph.lock.locked.value && LockAuth.available(this)) authenticate()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -126,9 +154,16 @@ class MainActivity : ComponentActivity() {
             }
             AppTheme {
                 val ui by vm.ui.collectAsState()
-                val snackbar = remember { SnackbarHostState() }
-                LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(it) } }
-                AppRoot(ui, vm, snackbar)
+                val locked by ClusterApp.graph.lock.locked.collectAsState()
+                // no lock when the phone cannot authenticate (no screen lock): it must not shut the owner out
+                if (locked && ui.lockAvailable) {
+                    LockScreen(::authenticate)
+                    LaunchedEffect(Unit) { authenticate() }
+                } else {
+                    val snackbar = remember { SnackbarHostState() }
+                    LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(it) } }
+                    AppRoot(ui, vm, snackbar)
+                }
             }
         }
     }

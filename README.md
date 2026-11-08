@@ -28,8 +28,14 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum), also with the app closed. Exclude the
   app from battery optimization when asked, otherwise Android may skip them. Only a real credential rejection suspends
   the automations; timeouts and network errors just wait for the next slot.
-- **Credentials**: Altro > Credenziali stores the VPN user/password and the ssh user/key (typed, pasted or picked from a
-  file) encrypted on the phone; only the fields you fill in change. The public release comes without any.
+- **Configuration**: Altro > Configurazione is where everything is entered: cluster host, ssh port, project folder, ssh
+  user and key (typed, pasted or picked from a file), VPN on/off with its host, user and password, GitHub repo and
+  branch. Nothing about a specific cluster or account is built into the app; all of it is stored encrypted on the
+  phone (AndroidX EncryptedSharedPreferences, key in the Android Keystore, no backups). Blank secret fields keep the
+  stored value. Without the VPN switch the app connects directly.
+- **Security**: Altro > Sicurezza locks the app behind fingerprint, face or the screen PIN (on at launch and after 30
+  seconds away). The lock guards the screens only: scheduled ticks keep running in the background. The build is not
+  debuggable. If the phone has no screen lock the app cannot lock itself.
 - **Updates**: Altro > Aggiornamenti checks the latest GitHub release, downloads the apk (checksum verified) and hands it
   to the system installer.
 - **Notifications**: a failed scheduled tick or sync, each job that ends (done or failed), and when every job is finished.
@@ -38,7 +44,7 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
   It compares git blob ids (one tree request plus one command on the cluster, nothing is downloaded), shows only what
   differs or "all up to date", and uploads only that. Results, figures and other files are never sent. Code files are not
   touched by scheduled syncs while a job is running.
-- **More**: connection check (VPN, ssh, cluster), history of every operation.
+- **More**: connection check (VPN, ssh, cluster), history of every operation, updates, configuration, security.
 - While the app is open it keeps one tunnel and one ssh session alive and refreshes every few seconds;
   in the background it opens short-lived sessions only for scheduled runs.
 
@@ -53,23 +59,18 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 ## Build (Docker only, nothing is installed on the host)
 
 ```powershell
-.\make-secrets.ps1     # writes secrets.properties (gitignored) from your .env and ssh key
-.\build.ps1            # debug APK -> dist\clustercontrol-debug.apk
+.\build.ps1            # debug-signed APK -> dist\clustercontrol-debug.apk
 .\test.ps1             # unit tests of core and sstp
 .\integration.ps1      # core against a throwaway sshd + the real cluster scripts (fake SLURM)
+.\release.ps1 -Publish -Notes "..."   # build, git tag + GitHub release with the apk
 ```
 
-`secrets.properties` holds the VPN credentials and the ssh key, which are baked into **your** APK in clear text:
-never share that APK and never commit that file. On first launch the app stores them encrypted, so a build without them
-keeps working over an install that has them.
+The APK carries no credentials or endpoints: after installing it, open Altro > Configurazione and enter them. Every
+build is signed with the debug key kept in the `cc-android-home` Docker volume, so Android installs a newer APK (or a
+release from Altro > Aggiornamenti) over the installed app; lose the volume and you must reinstall once.
 
-```powershell
-.\release.ps1 -Publish -Notes "..."   # public apk WITHOUT credentials, leak check, tag + GitHub release, then your own apk
-```
-
-The GitHub release carries the credential-free apk. All builds are signed with the debug key kept in the
-`cc-android-home` Docker volume, so Android installs a release over your app (lose the volume and you must reinstall once).
-Install your own credentialed build first, later versions come from Altro > Aggiornamenti.
+The project layout the app expects is the one of the t2g pipeline: `cluster/cluster_helper.sh` on the cluster and, in the
+repo, `cluster/*.sh`, `src/`, `experiments/configs/`, `cluster/presets.yaml`.
 
 `sstp-lab.ps1` and `sstp-e2e.ps1` exercise the tunnel against the real VPN server (one login per run, credentials
 via `docker --env-file`).

@@ -14,7 +14,7 @@ data class ClusterError(val kind: ErrorKind, val message: String)
 class ActionFailed(message: String) : Exception(message)
 
 class ConfigMissingException(missing: List<String> = emptyList()) :
-    Exception("Credenziali non incorporate" + if (missing.isEmpty()) "" else ": manca " + missing.joinToString(", "))
+    Exception("Configurazione incompleta" + if (missing.isEmpty()) "" else ": manca " + missing.joinToString(", "))
 
 private val AUTH_MARKERS = listOf("auth fail", "auth cancel", "userauth fail", "invalid privatekey", "passphrase")
 

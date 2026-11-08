@@ -1,16 +1,3 @@
-import java.util.Base64
-import java.util.Properties
-
-// Build-time defaults from the gitignored secrets.properties (values are base64): personal APK only, never commit it.
-val secrets = Properties().apply {
-    rootProject.file("secrets.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
-}
-
-// -PnoSeed builds the public release: no credentials inside the apk
-fun seed(key: String): String = if (project.hasProperty("noSeed")) "" else secrets.getProperty(key)?.let { String(Base64.getDecoder().decode(it)) } ?: ""
-
-fun lit(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "").replace("\n", "\\n") + "\""
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -25,17 +12,19 @@ android {
         applicationId = "app.clustercontrol"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.3.1"
-        for ((field, key) in listOf(
-            "SEED_VPN_HOST" to "vpnHost", "SEED_VPN_USER" to "vpnUser", "SEED_VPN_PASSWORD" to "vpnPassword",
-            "SEED_SSH_HOST" to "sshHost", "SEED_SSH_USER" to "sshUser", "SEED_SSH_KEY" to "sshKey",
-        )) buildConfigField("String", field, lit(seed(key)))
+        versionCode = 8
+        versionName = "0.4.0"
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    buildTypes {
+        // still signed with the debug key (so updates install over each other) but not debuggable:
+        // no run-as / debugger access to the app's data
+        debug { isDebuggable = false }
     }
 
     compileOptions {
@@ -63,6 +52,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment:1.8.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.compose.ui:ui")

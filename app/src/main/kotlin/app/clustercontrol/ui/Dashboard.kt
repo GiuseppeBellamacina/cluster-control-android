@@ -63,7 +63,7 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goMore: (
             ui.error?.let { e ->
                 when (e.kind) {
                     ErrorKind.HELPER_MISSING -> Banner(e.message, "Sincronizza") { goMore("Sincronizza") }
-                    ErrorKind.CONFIG -> Banner(e.message, "Credenziali") { goMore("Credenziali") }
+                    ErrorKind.CONFIG -> Banner(e.message, "Configura") { goMore("Configurazione") }
                     else -> Banner(e.message, if (ui.link == Link.OFFLINE) "Riprova" else null, actions::refresh)
                 }
             }
