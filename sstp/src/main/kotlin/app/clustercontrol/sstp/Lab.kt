@@ -5,7 +5,7 @@ import kotlin.system.exitProcess
 
 /**
  * Lab CLI. Credentials come from VPN_HOST / VPN_USER / VPN_PASSWORD (never printed).
- * Args: --no-auth (stop before sending credentials), --pin <sha256>, --target host:port (default 151.97.253.110:22),
+ * Args: --no-auth (stop before sending credentials), --pin <sha256>, --target host:port,
  * --no-tcp (stop after IPCP).
  */
 fun main(args: Array<String>) {
@@ -14,7 +14,7 @@ fun main(args: Array<String>) {
     val user = System.getenv("VPN_USER") ?: error("VPN_USER not set")
     val password = System.getenv("VPN_PASSWORD") ?: error("VPN_PASSWORD not set")
     val noAuth = "--no-auth" in args
-    val (tHost, tPort) = (opt("--target") ?: "151.97.253.110:22").split(":").let { it[0] to it[1].toInt() }
+    val (tHost, tPort) = (opt("--target") ?: error("--target host:port is required")).split(":").let { it[0] to it[1].toInt() }
     val t0 = System.currentTimeMillis()
     val tunnel = SstpTunnel(host, user, password, pinSha256 = opt("--pin"), authenticate = !noAuth) { name, detail ->
         println("[%5dms] %-14s %s".format(System.currentTimeMillis() - t0, name, detail))

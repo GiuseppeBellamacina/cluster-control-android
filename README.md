@@ -61,7 +61,7 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 ```powershell
 .\build.ps1            # debug-signed APK -> dist\clustercontrol-debug.apk
 .\test.ps1             # unit tests of core and sstp
-.\integration.ps1      # core against a throwaway sshd + the real cluster scripts (fake SLURM)
+.\integration.ps1 -ProjectRepo <checkout of the project>   # core against a throwaway sshd + the project's real cluster scripts (fake SLURM)
 .\release.ps1 -Publish -Notes "..."   # build, git tag + GitHub release with the apk
 ```
 
@@ -69,6 +69,7 @@ The APK carries no credentials or endpoints: after installing it, open Altro > C
 build is signed with the debug key kept in the `cc-android-home` Docker volume, so Android installs a newer APK (or a
 release from Altro > Aggiornamenti) over the installed app; lose the volume and you must reinstall once.
 
+The "project folder" you enter must be the one the cluster scripts themselves use (`PROJ_DIR` in `cluster/_lib.sh`).
 The project layout the app expects is the one of the t2g pipeline: `cluster/cluster_helper.sh` on the cluster and, in the
 repo, `cluster/*.sh`, `src/`, `experiments/configs/`, `cluster/presets.yaml`.
 

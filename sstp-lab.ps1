@@ -1,6 +1,6 @@
 # Runs the SSTP lab CLI in the build container (no local installs). Credentials only via docker --env-file.
 #   .\sstp-lab.ps1 -LabArgs "--no-auth"          # stops before sending credentials
-#   .\sstp-lab.ps1 -LabArgs "--target 151.97.253.110:22"   # ONE real authentication attempt
+#   .\sstp-lab.ps1 -LabArgs "--target <cluster-ip>:22"   # ONE real authentication attempt
 param(
     [Parameter(Mandatory)][string]$EnvFile,
     [string]$LabArgs = ""

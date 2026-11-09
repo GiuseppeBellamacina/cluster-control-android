@@ -1,10 +1,10 @@
 # Integration tests of core against a throwaway sshd + the REAL cluster_helper.sh / chain_tick.sh (fake SLURM).
-# Never touches the real cluster. Usage: .\integration.ps1 [-T2gRepo ..\neuro_symbolic_t2g]
-param([string]$T2gRepo = (Join-Path $PSScriptRoot "..\neuro_symbolic_t2g"))
+# Never touches the real cluster. Usage: .\integration.ps1 -ProjectRepo <path to a checkout of the project>
+param([Parameter(Mandatory)][string]$ProjectRepo)
 
 $ErrorActionPreference = "Stop"
 $proj = $PSScriptRoot
-$t2g = (Resolve-Path $T2gRepo).Path
+$t2g = (Resolve-Path $ProjectRepo).Path
 
 docker image inspect cc-android-build *> $null
 if ($LASTEXITCODE -ne 0) { & "$proj\gradle.ps1" --version | Out-Null }   # builds the base image

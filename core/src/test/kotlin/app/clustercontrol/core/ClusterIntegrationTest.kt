@@ -11,6 +11,11 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 
 /** Needs the CC_IT_* environment of integration.ps1 (throwaway sshd + real helper scripts + fake SLURM); skipped otherwise. */
 class ClusterIntegrationTest {
+    private companion object {
+        /** The project folder on the throwaway cluster: the helper scripts under test fix it (PROJ_DIR in cluster/_lib.sh). */
+        const val PROJECT = "neuro_symbolic_t2g"
+    }
+
     /** The repo as GitHub serves it: LF everywhere (the Windows working tree is CRLF, git stores LF). */
     private class DirFetcher(private val root: File) : SourceFetcher {
         private fun blob(path: String): ByteArray = File(root, path).readBytes().let { raw ->
@@ -55,29 +60,31 @@ class ClusterIntegrationTest {
     fun fullClusterFlow() {
         val cfg = itConfig()
         ClusterSession.open(cfg, DirectTransport, memoryKeys).use { s ->
-            val helper = HelperApi(s, "~/neuro_symbolic_t2g")
+            val helper = HelperApi(s, "~/$PROJECT")
 
             // 1. empty cluster: the helper is missing
             assertFailsWith<HelperMissingException> { helper.status() }
 
             // 2. sync installs src + scripts + helper + configs; a second run changes nothing
             val engine = SyncEngine(DirFetcher(File(System.getenv("CC_IT_REPO_DIR"))), "owner/repo")
-            val remote = SshRemoteStore(s, "neuro_symbolic_t2g")
+            val remote = SshRemoteStore(s, PROJECT)
             val first = engine.apply(remote)
             assertTrue(first.errors.isEmpty(), "sync errors: ${first.errors}")
             assertTrue("cluster/cluster_helper.sh" in first.updated)
-            assertTrue("src/training/grpo_t2g_train.py" in first.updated && "pyproject.toml" in first.updated)
+            assertTrue(first.updated.any { it.startsWith("src/") && it.endsWith(".py") } && "pyproject.toml" in first.updated)
             assertTrue(first.updated.none { it.startsWith("experiments/results") || it.endsWith("presets.yaml") })
-            assertEquals(0, s.exec("test -x ~/neuro_symbolic_t2g/cluster/cluster_helper.sh").rc)
+            assertEquals(0, s.exec("test -x ~/$PROJECT/cluster/cluster_helper.sh").rc)
             assertTrue(engine.apply(remote).updated.isEmpty())
             assertTrue(engine.status(remote).upToDate)
             // line endings do not count for code and configs (Windows uploads arrive as CRLF) ...
-            s.exec("sed -i 's/\$/\\r/' ~/neuro_symbolic_t2g/src/training/grpo_t2g_train.py")
+            val py = first.updated.first { it.startsWith("src/") && it.endsWith(".py") }
+            s.exec("sed -i 's/\$/\\r/' ~/$PROJECT/$py")
             assertTrue(engine.status(remote).upToDate)
             // ... but a CRLF shell script does not run: it must show up, and the sync repairs it
-            s.exec("sed -i 's/\$/\\r/' ~/neuro_symbolic_t2g/cluster/train.sh")
-            assertEquals(listOf("cluster/train.sh"), engine.status(remote).changes.map { it.path })
-            assertEquals(listOf("cluster/train.sh"), engine.apply(remote).updated)
+            val sh = first.updated.first { it.startsWith("cluster/") && it.endsWith(".sh") && !it.endsWith("cluster_helper.sh") }
+            s.exec("sed -i 's/\$/\\r/' ~/$PROJECT/$sh")
+            assertEquals(listOf(sh), engine.status(remote).changes.map { it.path })
+            assertEquals(listOf(sh), engine.apply(remote).updated)
             assertTrue(engine.status(remote).upToDate)
 
             // 3. queue management
@@ -102,7 +109,7 @@ class ClusterIntegrationTest {
 
             // 5. monitor/timeseries/results read what the job wrote
             s.exec(
-                "mkdir -p ~/neuro_symbolic_t2g/logs && printf '[stage 1] steps=200\\n  step=10 loss=0.9 reward=0.1\\n  step=20 loss=0.8 reward=0.2\\n' > ~/neuro_symbolic_t2g/logs/slurm-eval-$jobId.log",
+                "mkdir -p ~/$PROJECT/logs && printf '[stage 1] steps=200\\n  step=10 loss=0.9 reward=0.1\\n  step=20 loss=0.8 reward=0.2\\n' > ~/$PROJECT/logs/slurm-eval-$jobId.log",
             )
             val mon = helper.monitor()
             assertEquals(20, parseProgress(mon.logTail.orEmpty()).step)
@@ -110,7 +117,7 @@ class ClusterIntegrationTest {
             assertTrue(ts.match)
             assertEquals(200, ts.total)
             assertEquals(2, ts.series.getValue("loss").size)
-            s.exec("d=~/neuro_symbolic_t2g/experiments/results/aslg-pc12/qwen25-05b/baseline/zero-shot/run_1; mkdir -p \$d && echo '{\"rouge_l_mean\":0.5}' > \$d/eval_final.json")
+            s.exec("d=~/$PROJECT/experiments/results/aslg-pc12/qwen25-05b/baseline/zero-shot/run_1; mkdir -p \$d && echo '{\"rouge_l_mean\":0.5}' > \$d/eval_final.json")
             assertEquals(listOf("aslg-pc12/qwen25-05b/baseline/zero-shot"), helper.results("").keys.toList())
             assertTrue(helper.results("aslg-pc12-baseline-zero-shot").getValue("run_1").contains("rouge_l_mean"))
 

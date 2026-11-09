@@ -1,5 +1,5 @@
 # ONE real VPN login + ssh to the real cluster through the userspace SSTP tunnel (read-only helper `status`).
-# -EnvFile: a file with VPN_HOST, VPN_USER, VPN_PASSWORD, T2G_SSH_HOST, T2G_SSH_USER (passed only via docker --env-file)
+# -EnvFile: a file with VPN_HOST, VPN_USER, VPN_PASSWORD, T2G_SSH_HOST, T2G_SSH_USER, PROJECT_DIR, SYNC_REPO (passed only via docker --env-file)
 # Credentials only via docker --env-file; the ssh key is mounted read-only at /key.
 param(
     [Parameter(Mandatory)][string]$EnvFile,
