@@ -107,12 +107,15 @@ interface RemoteStore {
 class SshRemoteStore(private val session: ClusterSession, private val root: String) : RemoteStore {
     private fun shq(v: String) = "'" + v.replace("'", "'\\''") + "'"
 
-    // git's blob id from plain shell tools: sha1("blob <size>\0" + content); the whole check is ONE command
+    // git's blob id from plain shell tools: sha1("blob <size>\0" + content); the whole check is ONE command.
+    // Line endings do not count (files uploaded from Windows arrive as CRLF while the repo stores LF), except for
+    // shell scripts: a CRLF script does not run, so it must show up as different.
     private val script = """
         cd ~/$root 2>/dev/null || exit 0
         for f in "${'$'}@"; do
           [ -f "${'$'}f" ] || continue
-          printf '%s  %s\n' "${'$'}({ printf 'blob %s\0' "${'$'}(wc -c < "${'$'}f")"; cat "${'$'}f"; } | sha1sum | cut -d' ' -f1)" "${'$'}f"
+          case "${'$'}f" in *.sh) c() { cat "${'$'}f"; } ;; *) c() { tr -d '\r' < "${'$'}f"; } ;; esac
+          printf '%s  %s\n' "${'$'}({ printf 'blob %s\0' "${'$'}(c | wc -c)"; c; } | sha1sum | cut -d' ' -f1)" "${'$'}f"
         done
     """.trimIndent()
 

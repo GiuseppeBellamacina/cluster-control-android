@@ -40,7 +40,32 @@ fun main() {
             // read-only: compares the repo on GitHub with the cluster, uploads nothing
             val sync = SyncEngine(GithubFetcher(), "GiuseppeBellamacina/neuro_symbolic_t2g").status(SshRemoteStore(s, "neuro_symbolic_t2g"))
             println("sync: compared ${sync.checked} files, ${sync.changes.size} to update (${sync.changes.count { it.isNew }} new)")
-            sync.changes.take(12).forEach { println("  ${if (it.isNew) "new     " else "modified"} ${it.path}") }
+            // why does each differ? (read-only: cat on the cluster vs the same file on GitHub)
+            val fetcher = GithubFetcher()
+            val repo = "GiuseppeBellamacina/neuro_symbolic_t2g"
+            val kinds = sortedMapOf<String, MutableList<String>>()
+            val samples = mutableListOf<String>()
+            for (c in sync.changes) {
+                if (c.isNew) { kinds.getOrPut("missing on the cluster") { mutableListOf() } += c.path; continue }
+                val remote = s.exec("cat ~/neuro_symbolic_t2g/${c.path}").stdout
+                val github = String(fetcher.fetch(repo, "main", c.path), Charsets.UTF_8)
+                val lf = remote.replace("\r\n", "\n")
+                val kind = when {
+                    remote == github -> "identical (?)"
+                    lf == github -> "line endings only (CRLF on the cluster)"
+                    lf.trimEnd() == github.trimEnd() -> "trailing whitespace or final newline only"
+                    else -> "content differs"
+                }
+                kinds.getOrPut(kind) { mutableListOf() } += c.path
+                if (kind == "content differs" && samples.size < 6) {
+                    val rl = lf.lines()
+                    val gl = github.lines()
+                    val i = (0 until maxOf(rl.size, gl.size)).firstOrNull { rl.getOrNull(it) != gl.getOrNull(it) } ?: 0
+                    samples += "${c.path} line ${i + 1}: cluster=[${rl.getOrNull(i)?.take(70)}] github=[${gl.getOrNull(i)?.take(70)}] (lines ${rl.size} vs ${gl.size})"
+                }
+            }
+            kinds.forEach { (k, v) -> println("$k: ${v.size}"); v.take(6).forEach { println("    $it") } }
+            samples.forEach { println("DIFF $it") }
         }
     } catch (e: Exception) {
         println("FAILED: ${e::class.simpleName}: ${e.message?.take(200)}")

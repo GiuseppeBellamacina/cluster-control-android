@@ -41,8 +41,8 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Notifications**: a failed scheduled tick or sync, each job that ends (done or failed), and when every job is finished.
 - **Sync**: keeps the cluster identical to the GitHub repo for what it needs to run (the `.py` files of `src/`, the `.sh`
   scripts of `cluster/`, `experiments/configs/*.yaml`, `main.py`, `pyproject.toml`), the same set as `sync_cluster.ps1`.
-  It compares git blob ids (one tree request plus one command on the cluster, nothing is downloaded), shows only what
-  differs or "all up to date", and uploads only that. Results, figures and other files are never sent. Code files are not
+  It compares git blob ids (one tree request plus one command on the cluster, nothing is downloaded; line endings are
+  ignored except for shell scripts), shows only what differs or "all up to date", and uploads only that. Results, figures and other files are never sent. Code files are not
   touched by scheduled syncs while a job is running.
 - **More**: connection check (VPN, ssh, cluster), history of every operation, updates, configuration, security.
 - While the app is open it keeps one tunnel and one ssh session alive and refreshes every few seconds;

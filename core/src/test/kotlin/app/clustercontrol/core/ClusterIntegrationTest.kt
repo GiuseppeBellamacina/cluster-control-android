@@ -11,14 +11,20 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 
 /** Needs the CC_IT_* environment of integration.ps1 (throwaway sshd + real helper scripts + fake SLURM); skipped otherwise. */
 class ClusterIntegrationTest {
+    /** The repo as GitHub serves it: LF everywhere (the Windows working tree is CRLF, git stores LF). */
     private class DirFetcher(private val root: File) : SourceFetcher {
+        private fun blob(path: String): ByteArray = File(root, path).readBytes().let { raw ->
+            if (path.endsWith(".sh")) raw else raw.filter { it != '\r'.code.toByte() }.toByteArray()
+        }
+
         override fun entries(repo: String, branch: String): List<TreeEntry> =
             (listOf("src", "cluster", "experiments/configs").map { File(root, it) }.filter { it.exists() }
                 .flatMap { it.walkTopDown().filter { f -> f.isFile } } +
                 listOf("main.py", "pyproject.toml").map { File(root, it) }.filter { it.isFile })
-                .map { TreeEntry(it.relativeTo(root).invariantSeparatorsPath, gitBlobSha(it.readBytes()), it.length()) }
+                .map { it.relativeTo(root).invariantSeparatorsPath }
+                .map { TreeEntry(it, gitBlobSha(blob(it)), blob(it).size.toLong()) }
 
-        override fun fetch(repo: String, branch: String, path: String): ByteArray = File(root, path).readBytes()
+        override fun fetch(repo: String, branch: String, path: String): ByteArray = blob(path)
     }
 
     private val memoryKeys = object : HostKeys {
@@ -64,6 +70,14 @@ class ClusterIntegrationTest {
             assertTrue(first.updated.none { it.startsWith("experiments/results") || it.endsWith("presets.yaml") })
             assertEquals(0, s.exec("test -x ~/neuro_symbolic_t2g/cluster/cluster_helper.sh").rc)
             assertTrue(engine.apply(remote).updated.isEmpty())
+            assertTrue(engine.status(remote).upToDate)
+            // line endings do not count for code and configs (Windows uploads arrive as CRLF) ...
+            s.exec("sed -i 's/\$/\\r/' ~/neuro_symbolic_t2g/src/training/grpo_t2g_train.py")
+            assertTrue(engine.status(remote).upToDate)
+            // ... but a CRLF shell script does not run: it must show up, and the sync repairs it
+            s.exec("sed -i 's/\$/\\r/' ~/neuro_symbolic_t2g/cluster/train.sh")
+            assertEquals(listOf("cluster/train.sh"), engine.status(remote).changes.map { it.path })
+            assertEquals(listOf("cluster/train.sh"), engine.apply(remote).updated)
             assertTrue(engine.status(remote).upToDate)
 
             // 3. queue management
