@@ -111,7 +111,9 @@ private fun JobCard(ui: UiState, now: Long) {
                 a.state.equals("RUNNING", true) -> Chip("In corso")
                 else -> Chip("In attesa", Tone.GREY)
             }
+            a?.let { JobNames.parse(it.name).type }?.let { Chip(if (it.equals("eval", true)) "Eval" else "Train", Tone.GREY) }
             if (snap?.stopped == true) Chip("Pausa", Tone.RED)
+            if (snap != null && a != null) Chip("Coda: ${snap.queue.size}", Tone.GREY)
         }
         if (a == null || snap == null) {
             Text("Nessun job in esecuzione", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
