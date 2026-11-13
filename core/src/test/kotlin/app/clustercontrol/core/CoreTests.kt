@@ -364,6 +364,32 @@ class RunStatusViewTest {
     }
 
     @Test
+    fun readsWhatKindOfRunItIs() {
+        val v = assertNotNull(parse(resource("run_status_sample.json")))
+        assertEquals("grpo", v.method)
+        assertEquals("llm", v.modelFamily)
+        assertEquals("Qwen2.5-0.5B-Instruct", v.modelName)
+        assertEquals("0.5B", v.modelParams)
+        assertEquals("grpo", v.stage)
+        assertEquals(listOf("sft" to "done", "grpo" to "running", "eval" to "pending"), v.stages.map { it.id to it.state })
+        assertEquals(7770, v.stages.first().total)
+        assertEquals(listOf("LoRA r=32" to null, "4bit" to "gpu"), v.badges.map { it.label to it.icon })
+    }
+
+    @Test
+    fun anyKindOfRunIsAccepted() {
+        val v = assertNotNull(
+            parse("""{"run":{"kind":"inference","method":"ppo","model":{"family":"cnn"},"stages":[{"id":"warmup"},{"id":"x","label":"X","icon":"🔥","state":"failed"}],"badges":["a",{"label":"b"},3]}}"""),
+        )
+        assertEquals("ppo", v.method)
+        assertEquals("cnn", v.modelFamily)
+        assertEquals(listOf("warmup" to "pending", "x" to "failed"), v.stages.map { it.id to it.state })
+        assertEquals("warmup", v.stages.first().label)
+        assertEquals("🔥", v.stages[1].icon)
+        assertEquals(listOf("a", "b"), v.badges.map { it.label })
+    }
+
+    @Test
     fun seriesSidecarOfTheRealLibraryParses() {
         val (total, series) = parseSeriesJson(resource("run_status_sample.series.json"))
         assertEquals(5000, total)

@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -136,6 +137,16 @@ class AppLogicTest {
     @Test
     fun backoffThenGiveUp() {
         assertEquals(listOf<Long?>(2_000, 5_000, 10_000, null), (1..4).map { backoffMs(it) })
+    }
+
+    @Test
+    fun iconIdsBecomeGlyphsOrNothing() {
+        assertNotNull(app.clustercontrol.ui.glyphFor("grpo"))
+        assertEquals(app.clustercontrol.ui.glyphFor("GRPO"), app.clustercontrol.ui.glyphFor(" grpo "))
+        assertEquals("🔥", app.clustercontrol.ui.glyphFor("🔥"))
+        assertNull(app.clustercontrol.ui.glyphFor("some-unknown-method"))
+        assertNull(app.clustercontrol.ui.glyphFor(null))
+        assertEquals("some-unknown-method", app.clustercontrol.ui.withGlyph("some-unknown-method", "some-unknown-method"))
     }
 
     @Test

@@ -55,7 +55,7 @@ The app does not parse logs. The job writes its state with [runstatus](https://g
 `cluster/cluster_helper.sh` hands them over as `RUN_STATUS` (monitor) and `TS_SERIES` (charts). The Dashboard shows
 progress and live ETA (the total comes from the trainer, never above 100%), loss and reward charts, the reward of every
 component of an RL run with its own chart, the other metrics the job reports (learning rate, gradient norm, KL, lengths,
-GPU memory) and, for an evaluation, its final scores. The Log tab has a second page with the latest completions: prompt,
+GPU memory) and, for an evaluation, its final scores. The card also says what is running: algorithm (SFT, GRPO, PPO, DPO, ...), model and family (LLM, neural net, ML model, ...), free chips (LoRA, 4-bit, dataset) and a stepper of the planned stages (SFT ✓ › GRPO ▶ › Eval), each with an icon. All of it is declared by the training, so a new kind of run needs no app change; an unknown icon id shows as text. The Log tab has a second page with the latest completions: prompt,
 output, gold and the reward of each component. To monitor your own training, add the runstatus callback to it (3 lines,
 see that README); the raw log is only shown in the Log tab. A job that writes no runstatus file shows no progress.
 

@@ -17,6 +17,12 @@ data class RunSample(
     val total: Double?,
 )
 
+/** One planned stage of the run (sft, grpo, eval, ...): [state] is pending, running, done or failed. */
+data class StageView(val id: String, val label: String, val icon: String?, val state: String, val step: Int?, val total: Int?)
+
+/** A free chip the training asks to show (e.g. "LoRA", "4bit"). */
+data class BadgeView(val label: String, val icon: String?)
+
 /**
  * What the training reports through the runstatus library (the `RUN_STATUS` of the helper): everything the app
  * shows comes from here. Every field may be missing; a file that is not an object yields null.
@@ -37,6 +43,13 @@ data class RunStatusView(
     val samples: List<RunSample>,
     val note: String?,
     val gpuMemGb: Double?,
+    val method: String? = null,
+    val modelFamily: String? = null,
+    val modelName: String? = null,
+    val modelParams: String? = null,
+    val stage: String? = null,
+    val stages: List<StageView> = emptyList(),
+    val badges: List<BadgeView> = emptyList(),
 ) {
     /** Reward of each component (`rewards/<name>`), by name. */
     val rewardComponents: Map<String, Double>
@@ -60,7 +73,7 @@ private fun JsonObject?.numbers(k: String): Map<String, Double> =
     obj(k)?.mapNotNull { (key, v) -> (v as? JsonPrimitive)?.doubleOrNull?.let { key to it } }?.toMap().orEmpty()
 
 private fun parseSample(e: kotlinx.serialization.json.JsonElement): RunSample? = when (e) {
-    is JsonPrimitive -> e.contentOrNull?.let { RunSample(it, null, null, null, emptyMap(), null) }
+    is JsonPrimitive -> e.takeIf { it.isString }?.contentOrNull?.let { RunSample(it, null, null, null, emptyMap(), null) }
     is JsonObject -> RunSample(
         prompt = e.str("prompt"),
         output = e.str("output"),
@@ -69,6 +82,18 @@ private fun parseSample(e: kotlinx.serialization.json.JsonElement): RunSample? =
         rewards = e.numbers("rewards"),
         total = e.num("total"),
     )
+    else -> null
+}
+
+private fun parseStage(e: kotlinx.serialization.json.JsonElement): StageView? {
+    val o = e as? JsonObject ?: return null
+    val id = o.str("id") ?: return null
+    return StageView(id, o.str("label") ?: id, o.str("icon") ?: id, o.str("state") ?: "pending", o.num("step")?.toInt(), o.num("total")?.toInt())
+}
+
+private fun parseBadge(e: kotlinx.serialization.json.JsonElement): BadgeView? = when (e) {
+    is JsonPrimitive -> e.takeIf { it.isString }?.contentOrNull?.let { BadgeView(it, null) }
+    is JsonObject -> e.str("label")?.let { BadgeView(it, e.str("icon")) }
     else -> null
 }
 
@@ -96,5 +121,12 @@ fun parseRunStatus(o: JsonObject?): RunStatusView? {
         samples = (o["samples"] as? JsonArray).orEmpty().mapNotNull(::parseSample),
         note = o.str("note"),
         gpuMemGb = o.obj("gpu").num("mem_gb"),
+        method = run.str("method"),
+        modelFamily = run.obj("model").str("family"),
+        modelName = run.obj("model").str("name"),
+        modelParams = run.obj("model").str("params"),
+        stage = run.str("stage"),
+        stages = (run?.get("stages") as? JsonArray).orEmpty().mapNotNull(::parseStage),
+        badges = (run?.get("badges") as? JsonArray).orEmpty().mapNotNull(::parseBadge),
     )
 }

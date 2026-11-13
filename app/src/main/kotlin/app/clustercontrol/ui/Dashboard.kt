@@ -111,6 +111,7 @@ private fun grouped(n: Int) = "%,d".format(Locale.ITALY, n)
 private fun JobCard(ui: UiState, now: Long) {
     val snap = ui.snapshot
     val a = snap?.active
+    val view = remember(snap?.runStatus) { parseRunStatus(snap?.runStatus) }
     Card {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             when {
@@ -118,7 +119,9 @@ private fun JobCard(ui: UiState, now: Long) {
                 a.state.equals("RUNNING", true) -> Chip("In corso")
                 else -> Chip("In attesa", Tone.GREY)
             }
-            a?.let { JobNames.parse(it.name).type }?.let { Chip(if (it.equals("eval", true)) "Eval" else "Train", Tone.GREY) }
+            (view?.kind ?: a?.let { JobNames.parse(it.name).type })?.let {
+                IconChip(it, if (it.equals("eval", true)) "Eval" else it.replaceFirstChar { c -> c.uppercase() }, Tone.GREY)
+            }
             if (snap?.stopped == true) Chip("Pausa", Tone.RED)
             if (snap != null && a != null) Chip("Coda: ${snap.queue.size}", Tone.GREY)
         }
@@ -133,6 +136,10 @@ private fun JobCard(ui: UiState, now: Long) {
         Column {
             Text(title.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 20.sp)
             if (title.subtitle.isNotEmpty()) Caption(title.subtitle)
+        }
+        if (view != null) {
+            IdentityChips(view)
+            StageStepper(view)
         }
         Row(verticalAlignment = Alignment.Top) {
             Text(pct?.toString() ?: "--", fontSize = 56.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp, lineHeight = 60.sp)
