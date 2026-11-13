@@ -5,6 +5,7 @@ import app.clustercontrol.core.HelperMissingException
 import app.clustercontrol.core.HostKeyChangedException
 import app.clustercontrol.core.JobEntry
 import app.clustercontrol.core.Snapshot
+import app.clustercontrol.ui.iconPath
 import app.clustercontrol.sstp.SstpException
 import com.jcraft.jsch.JSchException
 import java.io.File
@@ -140,13 +141,22 @@ class AppLogicTest {
     }
 
     @Test
-    fun iconIdsBecomeGlyphsOrNothing() {
-        assertNotNull(app.clustercontrol.ui.glyphFor("grpo"))
-        assertEquals(app.clustercontrol.ui.glyphFor("GRPO"), app.clustercontrol.ui.glyphFor(" grpo "))
-        assertEquals("🔥", app.clustercontrol.ui.glyphFor("🔥"))
-        assertNull(app.clustercontrol.ui.glyphFor("some-unknown-method"))
-        assertNull(app.clustercontrol.ui.glyphFor(null))
-        assertEquals("some-unknown-method", app.clustercontrol.ui.withGlyph("some-unknown-method", "some-unknown-method"))
+    fun iconIdsBecomeSvgPathsOrNothing() {
+        val icons: (String?) -> String? = ::iconPath
+        assertNotNull(icons("grpo"))
+        assertEquals(icons("grpo"), icons(" GRPO "))
+        assertEquals(icons("sft"), icons("supervised"))
+        assertNull(icons("some-unknown-method"))
+        assertNull(icons("🔥"), "an emoji is not an icon id")
+        assertNull(icons(null))
+        for (id in listOf(
+            "train", "eval", "inference", "sft", "grpo", "ppo", "dpo", "rl", "pretrain", "finetune", "distill", "llm", "nn",
+            "cnn", "rnn", "transformer", "ml", "tree", "diffusion", "vision", "speech", "gpu", "data",
+            "state-done", "state-running", "state-failed",
+        )) {
+            val d = assertNotNull(icons(id), id)
+            assertTrue(Regex("""M[MmLlHhVvCcSsQqTtAaZz0-9eE., \-]+""").matches(d), "$id: $d")
+        }
     }
 
     @Test

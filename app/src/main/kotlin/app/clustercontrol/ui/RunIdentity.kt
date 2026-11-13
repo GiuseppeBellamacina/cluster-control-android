@@ -1,42 +1,34 @@
 package app.clustercontrol.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.clustercontrol.core.RunStatusView
 
-private val GLYPHS = mapOf(
-    // what the job does
-    "train" to "🏋️", "eval" to "📊", "inference" to "💬",
-    // method
-    "sft" to "🎓", "grpo" to "🎯", "ppo" to "🕹️", "dpo" to "⚖️", "rl" to "🎮", "rlhf" to "🎮",
-    "pretrain" to "🧱", "pretraining" to "🧱", "finetune" to "🔧", "distill" to "⚗️", "supervised" to "🎓",
-    // what is being trained
-    "llm" to "🤖", "nn" to "🧠", "cnn" to "🖼️", "rnn" to "🔁", "transformer" to "⚡", "ml" to "📈",
-    "tree" to "🌳", "diffusion" to "🌫️", "vision" to "👁️", "speech" to "🎙️",
-    // misc
-    "gpu" to "🖥️", "data" to "🗂️",
-)
-
-/**
- * A picture for an icon id sent by the training. Known ids map to a glyph, a short non-alphanumeric string (an emoji
- * the training chose itself) is shown as is, anything else gets no picture and the text speaks for itself.
- */
-fun glyphFor(id: String?): String? {
-    val key = id?.trim()?.lowercase() ?: return null
-    GLYPHS[key]?.let { return it }
-    return id.trim().takeIf { it.length <= 4 && it.isNotEmpty() && it.none { c -> c.isLetterOrDigit() } }
-}
-
-fun withGlyph(icon: String?, text: String): String = glyphFor(icon)?.let { "$it $text" } ?: text
-
+/** A chip with an optional line icon in front of the text and an optional state icon behind it. */
 @Composable
-fun IconChip(icon: String?, text: String, tone: Tone = Tone.GREY) = Chip(withGlyph(icon, text), tone)
+fun IconChip(icon: String?, text: String, tone: Tone = Tone.GREY, state: String? = null) {
+    Row(
+        Modifier.background(tone.bg, CircleShape).padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        SvgIcon(icon, tone.fg, 12.dp)
+        Text(text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = tone.fg, maxLines = 1)
+        SvgIcon(state, tone.fg, 11.dp)
+    }
+}
 
 /** What the job is: algorithm, model and the free chips it asked for. Nothing here is known to the app in advance. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -57,7 +49,7 @@ fun IdentityChips(view: RunStatusView) {
     }
 }
 
-/** The planned stages in order, the current one highlighted: `SFT ✓  ›  GRPO ▶  ›  Eval`. */
+/** The planned stages in order, the current one highlighted: SFT (done) › GRPO (running) › Eval. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StageStepper(view: RunStatusView) {
@@ -69,12 +61,12 @@ fun StageStepper(view: RunStatusView) {
         view.stages.forEachIndexed { i, s ->
             if (i > 0) Text("›", fontSize = 14.sp, color = C.Faint, modifier = Modifier)
             val (tone, mark) = when (s.state) {
-                "done" -> Tone.GREEN to " ✓"
-                "running" -> Tone.BLUE to " ▶"
-                "failed" -> Tone.RED to " ✗"
-                else -> Tone.GREY to ""
+                "done" -> Tone.GREEN to "state-done"
+                "running" -> Tone.BLUE to "state-running"
+                "failed" -> Tone.RED to "state-failed"
+                else -> Tone.GREY to null
             }
-            Chip(withGlyph(s.icon, s.label) + mark, tone)
+            IconChip(s.icon, s.label, tone, mark)
         }
     }
 }
