@@ -1,10 +1,7 @@
 package app.clustercontrol
 
 import app.clustercontrol.core.Snapshot
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
+import app.clustercontrol.core.parseRunStatus
 
 /** Everything the app records in the history; [name] is what is stored. */
 enum class Op(val label: String) {
@@ -47,18 +44,14 @@ data class Progress(
 
 /** The runstatus file of the active job is the only source: no log parsing. Absent file: all null. */
 fun progressOf(s: Snapshot): Progress {
-    val run = s.runStatus
-    fun obj(o: JsonObject?, k: String) = o?.get(k) as? JsonObject
-    fun num(o: JsonObject?, k: String) = (o?.get(k) as? JsonPrimitive)?.doubleOrNull
-    val progress = obj(run, "progress")
-    val latest = obj(obj(run, "metrics"), "latest")
+    val v = parseRunStatus(s.runStatus)
     return Progress(
-        step = num(progress, "step")?.toInt(),
-        total = num(progress, "total_steps")?.toInt(),
-        loss = num(latest, "loss"),
-        reward = num(latest, "reward"),
-        etaSeconds = num(progress, "eta_s")?.toLong(),
-        phase = (obj(run, "run")?.get("phase") as? JsonPrimitive)?.contentOrNull,
+        step = v?.step,
+        total = v?.total,
+        loss = v?.latest?.get("loss"),
+        reward = v?.latest?.get("reward"),
+        etaSeconds = v?.etaSeconds,
+        phase = v?.phase,
     )
 }
 

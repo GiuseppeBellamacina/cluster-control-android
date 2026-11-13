@@ -51,10 +51,13 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 ## Monitoring: the training reports its own progress
 
 The app does not parse logs. The job writes its state with [runstatus](https://github.com/GiuseppeBellamacina/runstatus)
-(`logs/run_status-<jobid>.json` plus a series file next to it); the project's `cluster/cluster_helper.sh` hands them over
-as `RUN_STATUS` (monitor) and `TS_SERIES` (charts). Progress, ETA, loss/reward and the charts all come from there. To
-monitor your own training, add the runstatus callback to it (3 lines, see that README); the raw log is only shown in
-the Log tab. A job that writes no runstatus file shows no progress.
+(`run_status/<jobid>.json` plus `<jobid>.series.json`, in a folder of their own next to the SLURM logs); the project's
+`cluster/cluster_helper.sh` hands them over as `RUN_STATUS` (monitor) and `TS_SERIES` (charts). The Dashboard shows
+progress and live ETA (the total comes from the trainer, never above 100%), loss and reward charts, the reward of every
+component of an RL run with its own chart, the other metrics the job reports (learning rate, gradient norm, KL, lengths,
+GPU memory) and, for an evaluation, its final scores. The Log tab has a second page with the latest completions: prompt,
+output, gold and the reward of each component. To monitor your own training, add the runstatus callback to it (3 lines,
+see that README); the raw log is only shown in the Log tab. A job that writes no runstatus file shows no progress.
 
 ## Modules
 

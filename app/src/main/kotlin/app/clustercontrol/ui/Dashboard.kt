@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +45,7 @@ import app.clustercontrol.core.downsample
 import app.clustercontrol.core.formatAgo
 import app.clustercontrol.core.formatCountdown
 import app.clustercontrol.core.nextTickAt
+import app.clustercontrol.core.parseRunStatus
 import app.clustercontrol.core.percentOf
 import app.clustercontrol.progressOf
 import java.util.Locale
@@ -76,6 +78,12 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goMore: (
                     MetricCard("Loss", p.loss ?: loss.lastOrNull()?.value, loss, C.Accent, Modifier.weight(1f))
                     MetricCard("Reward", p.reward ?: reward.lastOrNull()?.value, reward, C.Green, Modifier.weight(1f))
                 }
+            }
+            val view = remember(snap?.runStatus) { parseRunStatus(snap?.runStatus) }
+            if (a != null && view != null) {
+                RewardsCard(view, ui.series)
+                EvalResultsCard(view)
+                MetricsCard(view)
             }
             TickCard(ui, now)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

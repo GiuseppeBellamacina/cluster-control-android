@@ -111,7 +111,7 @@ class ClusterIntegrationTest {
             // what the runstatus library writes: a one-line state file per job and the series sidecar next to it
             assertNull(helper.monitor().runStatus, "no file yet")
             s.exec(
-                """mkdir -p ~/$PROJECT/logs && printf '%s' '{"run":{"kind":"eval","phase":"eval"},"progress":{"step":20,"total_steps":200,"eta_s":90},"metrics":{"latest":{"loss":0.8}}}' > ~/$PROJECT/logs/run_status-$jobId.json && printf '%s' '{"total_steps":200,"series":{"loss":[[10,0.9],[20,0.8]]}}' > ~/$PROJECT/logs/run_status-$jobId.json.series.json""",
+                """mkdir -p ~/$PROJECT/run_status && printf '%s' '{"run":{"kind":"eval","phase":"eval"},"progress":{"step":20,"total_steps":200,"eta_s":90},"metrics":{"latest":{"loss":0.8}}}' > ~/$PROJECT/run_status/$jobId.json && printf '%s' '{"total_steps":200,"series":{"loss":[[10,0.9],[20,0.8]]}}' > ~/$PROJECT/run_status/$jobId.series.json""",
             )
             val mon = helper.monitor()
             assertTrue(mon.runStatus.toString().contains(""""step":20"""), "RUN_STATUS: ${mon.runStatus}")
