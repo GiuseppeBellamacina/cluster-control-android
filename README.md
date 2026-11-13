@@ -25,6 +25,14 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **Dashboard**: active job (train/eval, queue size) with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
 - **Queue**: drag and drop reorder, swipe to delete with undo, add jobs or presets from a sheet, pause, kill.
 - **Log**: raw log of the active job.
+- **Automatic start**: when a job ends and others wait, the app asks the cluster to start the next one right away (with the
+  app open, within seconds; with it closed, a check is scheduled for when the job should end, plus one every 15 minutes).
+  If the job does not start it retries with a growing delay and notifies once after the last attempt. The cluster scripts
+  keep the real chain logic: a train that hits the 12 h limit, runs out of memory or crashes is put back with `--resume`
+  up to twice. The forced tick stays as an optional fallback (off by default). The Dashboard shows "Ripresa automatica 1/2"
+  on a resumed job and the latest cluster errors.
+- **Themes**: Altro > Aspetto: follow the phone, or Chiaro, Scuro, Nero (AMOLED), Seppia, Oceano, Foresta. Every colour the
+  UI uses comes from one palette, so adding a theme is one entry in `Themes.kt`.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum), also with the app closed. Exclude the
   app from battery optimization when asked, otherwise Android may skip them. Only a real credential rejection suspends
   the automations; timeouts and network errors just wait for the next slot.

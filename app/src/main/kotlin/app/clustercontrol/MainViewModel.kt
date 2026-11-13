@@ -77,6 +77,8 @@ data class UiState(
     val configMissing: List<String> = emptyList(),
     val cfg: ConfigView = ConfigView(),
     val lockEnabled: Boolean = true,
+    val theme: String = "system",
+    val autoAdvance: Boolean = true,
     val lockAvailable: Boolean = true,
 )
 
@@ -106,6 +108,8 @@ interface Actions {
     fun installUpdate()
     fun saveConfig(input: ConfigInput)
     fun setLockEnabled(on: Boolean)
+    fun setTheme(id: String)
+    fun setAutoAdvance(on: Boolean)
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
@@ -120,6 +124,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
     private fun merge(l: LiveState, st: AppState, sch: List<Schedule>, hist: List<HistoryEntry>, loc: UiState) = loc.copy(
         snapshot = l.snapshot, snapshotAt = l.snapshotAt, link = l.link, error = l.error, series = l.series,
         schedules = sch, history = hist, suspended = st.autoSuspended, suspendReason = st.suspendReason,
+        theme = st.theme, autoAdvance = st.autoAdvance,
     )
 
     val ui: StateFlow<UiState> = combine(g.live.state, g.stores.state, g.stores.schedules, g.stores.history, local) { l, st, sch, hist, loc -> merge(l, st, sch, hist, loc) }
@@ -296,7 +301,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
     }
 
     override fun runSchedule(s: Schedule) {
-        launchBusy { report(g.ops.run(s.action, s.name, auto = false), "${s.name}: eseguito") }
+        launchBusy {
+            val e = g.ops.run(s.action, s.name, auto = false)
+            if (e == null) _events.tryEmit("Niente da avviare") else report(e, "${s.name}: eseguito")
+        }
     }
 
     /** Called on resume: the owner may have changed battery or screen-lock settings in the system. */
@@ -362,6 +370,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         g.lockPrefs.edit().putBoolean("enabled", on).apply()
         g.lock.enable(on)
         local.update { it.copy(lockEnabled = on) }
+    }
+
+    override fun setTheme(id: String) {
+        g.stores.updateState { it.copy(theme = id) }
+    }
+
+    override fun setAutoAdvance(on: Boolean) {
+        g.stores.updateState { it.copy(autoAdvance = on) }
+        g.advancer.reset()
     }
 
     override fun resumeAuto() {

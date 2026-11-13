@@ -427,3 +427,88 @@ class RunStatusViewTest {
         assertTrue(v.latest.isEmpty() && v.samples.isEmpty() && !v.evalActive)
     }
 }
+
+class AutoAdvanceTest {
+    private val job = ActiveJob("1", "train-x", "RUNNING")
+    private val entry = JobEntry("train", "c.yaml", "t1")
+
+    private fun snap(active: ActiveJob? = null, queue: List<JobEntry> = listOf(entry), stopped: Boolean = false, last: String? = null) =
+        Snapshot(active, queue, last?.let { LastJob(it, "train", "c.yaml", "t0", 0) }, stopped, 0, emptyList())
+
+    @Test
+    fun ticksAsSoonAsTheJobIsOverAndWorkWaits() {
+        val a = AutoAdvance()
+        assertEquals(Advance.Wait, a.decide(snap(active = job), 0))
+        assertEquals(Advance.Tick, a.decide(snap(last = "1"), 1_000))
+    }
+
+    @Test
+    fun nothingToDoWhenPausedEmptyOrNoSnapshot() {
+        val a = AutoAdvance()
+        assertEquals(Advance.Wait, a.decide(null, 0))
+        assertEquals(Advance.Wait, a.decide(snap(stopped = true), 0))
+        assertEquals(Advance.Wait, a.decide(snap(queue = emptyList()), 0))
+    }
+
+    @Test
+    fun aStartedJobEndsTheAttempts() {
+        val a = AutoAdvance()
+        assertEquals(Advance.Tick, a.decide(snap(), 0))
+        assertEquals(Advance.Wait, a.ticked(snap(active = job, queue = emptyList()), 0))
+        assertEquals(Advance.Tick, a.decide(snap(), 1), "a fresh situation starts with no backoff")
+    }
+
+    @Test
+    fun retriesWithBackoffThenGivesUpOnce() {
+        val a = AutoAdvance(listOf(10, 20, 30))
+        var now = 0L
+        val waits = mutableListOf<Long>()
+        var result: Advance = Advance.Wait
+        repeat(3) {
+            assertEquals(Advance.Tick, a.decide(snap(), now))
+            result = a.ticked(snap(), now)
+            if (result == Advance.Wait) {
+                assertEquals(Advance.Wait, a.decide(snap(), now + 1), "not due yet")
+                now += listOf(10L, 20L, 30L)[it]
+                waits += now
+            }
+        }
+        assertEquals(listOf(10L, 30L), waits)
+        assertTrue(result is Advance.GiveUp)
+        assertEquals(Advance.Wait, a.decide(snap(), now + 10_000), "after giving up it stays quiet")
+    }
+
+    @Test
+    fun aFailedTickCountsLikeAJobThatDoesNotStart() {
+        val a = AutoAdvance(listOf(10, 20))
+        assertEquals(Advance.Tick, a.decide(snap(), 0))
+        assertEquals(Advance.Wait, a.ticked(null, 0))
+        assertTrue(a.ticked(null, 10) is Advance.GiveUp)
+    }
+
+    @Test
+    fun resetAndNewSituationsStartOver() {
+        val a = AutoAdvance(listOf(10))
+        a.decide(snap(), 0)
+        assertTrue(a.ticked(snap(), 0) is Advance.GiveUp)
+        assertEquals(Advance.Wait, a.decide(snap(), 100))
+        assertEquals(Advance.Tick, a.decide(snap(last = "2"), 100), "another job finished meanwhile")
+        a.ticked(snap(last = "2"), 100)
+        a.reset()
+        assertEquals(Advance.Tick, a.decide(snap(last = "2"), 100))
+    }
+}
+
+class JobErrorTest {
+    @Test
+    fun parsesTheClusterErrorLine() {
+        val line = """{"tag":"t1","job_type":"train","slurm_id":"7","config":"c.yaml","error_type":"TIMEOUT","slurm_state":"TIMEOUT","exit_code":"0:0","timestamp":"2026-11-13 10:00:00","error_snippet":"x","retry_num":1,"resolved":true}"""
+        val e = assertNotNull(parseJobError(line))
+        assertEquals("t1", e.tag)
+        assertEquals("TIMEOUT", e.errorType)
+        assertEquals(1, e.retryNum)
+        assertTrue(e.willRetry)
+        assertEquals("Tempo limite (12 h) raggiunto", describeError(e.errorType))
+        assertNull(parseJobError("not json"))
+    }
+}

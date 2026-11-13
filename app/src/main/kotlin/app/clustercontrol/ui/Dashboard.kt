@@ -39,6 +39,7 @@ import app.clustercontrol.Link
 import app.clustercontrol.Op
 import app.clustercontrol.UiState
 import app.clustercontrol.core.JobNames
+import app.clustercontrol.core.MAX_RESUMES
 import app.clustercontrol.core.Point
 import app.clustercontrol.core.ScheduleAction
 import app.clustercontrol.core.downsample
@@ -82,9 +83,11 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goMore: (
             val view = remember(snap?.runStatus) { parseRunStatus(snap?.runStatus) }
             if (a != null && view != null) {
                 RewardsCard(view, ui.series)
+                SeriesCard(ui.series)
                 EvalResultsCard(view)
                 MetricsCard(view)
             }
+            if (snap != null && snap.errorsCount > 0) ErrorsCard(snap.errorsTail, snap.errorsCount)
             TickCard(ui, now)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn("Tick ora", actions::tick, Modifier.weight(1f), busy = ui.busy)
@@ -141,6 +144,9 @@ private fun JobCard(ui: UiState, now: Long) {
             IdentityChips(view)
             StageStepper(view)
         }
+        snap.lastJob?.takeIf { it.id == a.id && (it.retries ?: 0) > 0 }?.let {
+            IconChip("rl", "Ripresa automatica ${it.retries}/$MAX_RESUMES", Tone.BLUE)
+        }
         Row(verticalAlignment = Alignment.Top) {
             Text(pct?.toString() ?: "--", fontSize = 56.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp, lineHeight = 60.sp)
             Text("%", Modifier.padding(top = 10.dp, start = 2.dp), fontSize = 22.sp, color = C.Faint, fontWeight = FontWeight.SemiBold)
@@ -153,6 +159,15 @@ private fun JobCard(ui: UiState, now: Long) {
             // counted down every second from the ETA of the last snapshot
             val eta = p.etaSeconds?.let { it - (now - (ui.snapshotAt ?: now)) / 1000 }
             if (eta != null && eta > 0) Caption("ETA " + formatCountdown(eta * 1000))
+        }
+        view?.let { v ->
+            val extra = listOfNotNull(
+                v.epoch?.let { "epoca ${"%.2f".format(Locale.ROOT, it)}" },
+                v.stepsPerSecond?.let { "${"%.2f".format(Locale.ROOT, it)} step/s" },
+                v.gpuMemGb?.let { "GPU ${"%.1f".format(Locale.ROOT, it)} GB" },
+            )
+            if (extra.isNotEmpty()) Caption(extra.joinToString(" · "))
+            if (v.evalActive) Caption("Valutazione in corso" + (v.evalProgress?.let { " ($it)" } ?: ""))
         }
     }
 }
@@ -201,16 +216,24 @@ private fun TickCard(ui: UiState, now: Long) {
     val interval = ui.schedules.firstOrNull { it.enabled && it.action == ScheduleAction.TICK }?.effectiveIntervalMinutes
     ListCard {
         ListRow {
-            Text("Prossimo tick", Modifier.weight(1f), fontSize = 14.sp)
-            val text = when {
-                interval == null -> "Tick automatico spento"
-                else -> nextTickAt(last?.at, interval, now)?.let { (it - now).let { ms -> if (ms <= 0) "ora" else "tra " + formatCountdown(ms) } } ?: "--"
+            Text("Avvio automatico", Modifier.weight(1f), fontSize = 14.sp)
+            when {
+                ui.suspended -> Chip("sospeso", Tone.RED)
+                ui.autoAdvance -> Chip("attivo", Tone.GREEN)
+                else -> Chip("spento", Tone.GREY)
             }
-            Text(text, fontSize = 13.sp, color = C.Faint)
+        }
+        if (interval != null) {
+            Sep()
+            ListRow {
+                Text("Prossimo tick forzato", Modifier.weight(1f), fontSize = 14.sp)
+                val text = nextTickAt(last?.at, interval, now)?.let { (it - now).let { ms -> if (ms <= 0) "ora" else "tra " + formatCountdown(ms) } } ?: "--"
+                Text(text, fontSize = 13.sp, color = C.Faint)
+            }
         }
         Sep()
         ListRow {
-            Text("Ultimo tick", Modifier.weight(1f), fontSize = 14.sp)
+            Text("Ultimo avvio", Modifier.weight(1f), fontSize = 14.sp)
             if (last == null) {
                 Text("mai", fontSize = 13.sp, color = C.Faint)
             } else {

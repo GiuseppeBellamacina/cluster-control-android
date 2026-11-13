@@ -56,6 +56,52 @@ class ClusterIntegrationTest {
         }
     }
 
+    /**
+     * The cluster's own retry policy, against the real chain scripts: a train that hits the time limit is put back with
+     * --resume (at most MAX_RESUMES times), also when it was the only job in the queue.
+     */
+    @Test
+    fun aTrainThatHitsTheTimeLimitIsResumedUpToTwoTimes() {
+        val cfg = itConfig()
+        ClusterSession.open(cfg, DirectTransport, memoryKeys).use { s ->
+          try {
+            val helper = HelperApi(s, "~/$PROJECT")
+            SyncEngine(DirFetcher(File(System.getenv("CC_IT_REPO_DIR"))), "owner/repo").apply(SshRemoteStore(s, PROJECT))
+            s.exec("rm -f /tmp/fakeslurm/active ~/$PROJECT/.chain_state/last_job")
+            helper.rewriteQueue(emptyList())
+            helper.resume()
+            val cfgPath = "experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml"
+            var job = assertNotNull(helper.enqueue(listOf(buildEntry("train", cfgPath, "it-timeout")), startNow = true).snapshot.active).id
+
+            for (attempt in 1..MAX_RESUMES) {
+                // the job runs into the 12 h limit: the scheduler reports TIMEOUT and nothing else is queued
+                s.exec("rm -f /tmp/fakeslurm/active; echo TIMEOUT > /tmp/fakeslurm/state-$job")
+                val snap = helper.tick().snapshot
+                val resumed = assertNotNull(snap.active, "attempt $attempt: the train should have been resumed")
+                assertTrue(resumed.id != job)
+                assertEquals(attempt, snap.lastJob?.retries)
+                assertEquals("TIMEOUT", parseJobError(snap.errorsTail.last())?.errorType)
+                assertTrue(parseJobError(snap.errorsTail.last())?.willRetry == true)
+                job = resumed.id
+            }
+
+            // the third timeout exceeds the retries: the chain stops and says so
+            s.exec("rm -f /tmp/fakeslurm/active; echo TIMEOUT > /tmp/fakeslurm/state-$job")
+            val last = helper.tick().snapshot
+            assertNull(last.active, "no more resumes after $MAX_RESUMES")
+            assertTrue(last.queue.isEmpty())
+            assertEquals(false, parseJobError(last.errorsTail.last())?.willRetry)
+            // another tick changes nothing (no error spam, no new job)
+            val again = helper.tick().snapshot
+            assertNull(again.active)
+            assertEquals(last.errorsCount, again.errorsCount)
+          } finally {
+            // the other test starts from an empty cluster
+            s.exec("rm -rf ~/$PROJECT /tmp/fakeslurm")
+          }
+        }
+    }
+
     @Test
     fun fullClusterFlow() {
         val cfg = itConfig()

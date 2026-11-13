@@ -1,11 +1,22 @@
 package app.clustercontrol.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import app.clustercontrol.core.MAX_RESUMES
+import app.clustercontrol.core.describeError
+import app.clustercontrol.core.parseJobError
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -111,6 +122,52 @@ fun SamplesList(samples: List<RunSample>, modifier: Modifier = Modifier) {
                         s.rewards.forEach { (k, v) -> KeyValue(nice(k), "%+.2f".format(Locale.ROOT, v)) }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** A chart for any metric the job reports: pick it from the chips, see its range and latest value. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SeriesCard(series: Map<String, List<Point>>) {
+    val keys = series.filterValues { it.size > 1 }.keys.toList()
+    if (keys.isEmpty()) return
+    var chosen by rememberSaveable { mutableStateOf(keys.first()) }
+    val key = if (chosen in keys) chosen else keys.first()
+    val pts = series.getValue(key)
+    Card {
+        Caption("Grafico")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            keys.forEach { k ->
+                Box(Modifier.clickable { chosen = k }) { Chip(k, if (k == key) Tone.BLUE else Tone.GREY) }
+            }
+        }
+        Sparkline(pts, C.Accent, Modifier.fillMaxWidth().height(110.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Caption("min ${fmtNum(pts.minOf { it.value })}")
+            Caption("ultimo ${fmtNum(pts.last().value)} (step ${pts.last().step})")
+            Caption("max ${fmtNum(pts.maxOf { it.value })}")
+        }
+    }
+}
+
+/** The cluster's recent job errors: what hit the job and whether the chain put it back with --resume. */
+@Composable
+fun ErrorsCard(tail: List<String>, total: Int) {
+    val errors = tail.mapNotNull(::parseJobError).takeLast(3).reversed()
+    Card {
+        Caption(if (total > errors.size) "Errori recenti ($total in tutto)" else "Errori recenti")
+        if (errors.isEmpty()) Caption("$total errori registrati sul cluster")
+        errors.forEach { e ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(describeError(e.errorType), Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    if (e.willRetry) Chip("ripreso ${e.retryNum}/${MAX_RESUMES}", Tone.BLUE) else Chip("fermo", Tone.RED)
+                }
+                Caption("${e.tag} · ${e.jobType} · ${e.timestamp}")
             }
         }
     }

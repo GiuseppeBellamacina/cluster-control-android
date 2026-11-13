@@ -50,6 +50,7 @@ data class RunStatusView(
     val stage: String? = null,
     val stages: List<StageView> = emptyList(),
     val badges: List<BadgeView> = emptyList(),
+    val stepsPerSecond: Double? = null,
 ) {
     /** Reward of each component (`rewards/<name>`), by name. */
     val rewardComponents: Map<String, Double>
@@ -128,5 +129,6 @@ fun parseRunStatus(o: JsonObject?): RunStatusView? {
         stage = run.str("stage"),
         stages = (run?.get("stages") as? JsonArray).orEmpty().mapNotNull(::parseStage),
         badges = (run?.get("badges") as? JsonArray).orEmpty().mapNotNull(::parseBadge),
+        stepsPerSecond = progress.num("steps_per_s"),
     )
 }

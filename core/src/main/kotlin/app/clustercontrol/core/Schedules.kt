@@ -1,6 +1,7 @@
 package app.clustercontrol.core
 
-enum class ScheduleAction { TICK, SYNC, STATUS }
+/** [ADVANCE] checks the cluster and ticks only when it is idle with jobs waiting; [TICK] always ticks (the manual fallback). */
+enum class ScheduleAction { TICK, SYNC, STATUS, ADVANCE }
 
 /** A user-defined "cron job". WorkManager periodic work cannot run more often than every 15 minutes. */
 data class Schedule(

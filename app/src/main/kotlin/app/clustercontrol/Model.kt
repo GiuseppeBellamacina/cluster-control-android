@@ -31,6 +31,10 @@ data class AppState(
     val snapshot: Snapshot? = null,
     val snapshotAt: Long? = null,
     val schedulesVersion: Int = 0,
+    /** Start the next job by itself when the previous one is over (the periodic tick stays as a fallback). */
+    val autoAdvance: Boolean = true,
+    /** Id of the colour theme (see [Themes]); "system" follows the phone. */
+    val theme: String = "system",
 )
 
 data class Progress(

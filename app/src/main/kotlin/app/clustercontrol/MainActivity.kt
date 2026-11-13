@@ -11,6 +11,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.clustercontrol.ui.AppTheme
+import app.clustercontrol.ui.Themes
 import app.clustercontrol.ui.AutomationsScreen
 import app.clustercontrol.ui.C
 import app.clustercontrol.ui.DashboardScreen
@@ -68,7 +70,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
 @Composable
 fun BottomBar(tab: Tab, onSelect: (Tab) -> Unit) {
     Column(Modifier.background(C.Card.copy(alpha = .94f))) {
-        HorizontalDivider(color = Hairline, thickness = 1.dp)
+        HorizontalDivider(color = C.Hairline, thickness = 1.dp)
         Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 6.dp)) {
             Tab.entries.forEach {
                 val on = it == tab
@@ -84,7 +86,6 @@ fun BottomBar(tab: Tab, onSelect: (Tab) -> Unit) {
     }
 }
 
-private val Hairline = androidx.compose.ui.graphics.Color(0xFFDCDCE2)
 
 @Composable
 fun AppRoot(ui: UiState, actions: Actions, snackbar: SnackbarHostState) {
@@ -142,18 +143,23 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // light UI only: dark status and navigation bar icons
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
-        )
         setContent {
+            val ui by vm.ui.collectAsState()
+            val palette = Themes.resolve(ui.theme, isSystemInDarkTheme())
+            // status and navigation bar icons follow the theme: light icons on dark palettes, dark ones on light
+            LaunchedEffect(palette.dark) {
+                val bar = if (palette.dark) {
+                    SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = bar, navigationBarStyle = bar)
+            }
             val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
             LaunchedEffect(Unit) {
                 if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
-            AppTheme {
-                val ui by vm.ui.collectAsState()
+            AppTheme(palette) {
                 val locked by ClusterApp.graph.lock.locked.collectAsState()
                 // no lock when the phone cannot authenticate (no screen lock): it must not shut the owner out
                 if (locked && ui.lockAvailable) {

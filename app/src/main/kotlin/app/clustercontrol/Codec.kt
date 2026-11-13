@@ -85,6 +85,8 @@ fun AppState.toJson(): JsonObject = buildJsonObject {
     put("snapshot", snapshot?.toJson() ?: JsonNull)
     put("snapshotAt", snapshotAt)
     put("schedulesVersion", schedulesVersion)
+    put("autoAdvance", autoAdvance)
+    put("theme", theme)
 }
 
 fun stateFromJson(o: JsonObject) = AppState(
@@ -93,5 +95,7 @@ fun stateFromJson(o: JsonObject) = AppState(
     snapshot = (o["snapshot"] as? JsonObject)?.let(::snapshotFromJson),
     snapshotAt = (o["snapshotAt"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull(),
     schedulesVersion = (o["schedulesVersion"] as? JsonPrimitive)?.intOrNull ?: 0,
+    autoAdvance = (o["autoAdvance"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() ?: true,
+    theme = o.str("theme") ?: "system",
 )
 
