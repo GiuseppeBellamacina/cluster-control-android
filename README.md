@@ -22,7 +22,7 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 
 ## Features
 
-- **Dashboard**: active job with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
+- **Dashboard**: active job (train/eval, queue size) with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
 - **Queue**: drag and drop reorder, swipe to delete with undo, add jobs or presets from a sheet, pause, kill.
 - **Log**: raw log of the active job.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum), also with the app closed. Exclude the
@@ -47,6 +47,14 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **More**: connection check (VPN, ssh, cluster), history of every operation, updates, configuration, security.
 - While the app is open it keeps one tunnel and one ssh session alive and refreshes every few seconds;
   in the background it opens short-lived sessions only for scheduled runs.
+
+## Monitoring: the training reports its own progress
+
+The app does not parse logs. The job writes its state with [runstatus](https://github.com/GiuseppeBellamacina/runstatus)
+(`logs/run_status-<jobid>.json` plus a series file next to it); the project's `cluster/cluster_helper.sh` hands them over
+as `RUN_STATUS` (monitor) and `TS_SERIES` (charts). Progress, ETA, loss/reward and the charts all come from there. To
+monitor your own training, add the runstatus callback to it (3 lines, see that README); the raw log is only shown in
+the Log tab. A job that writes no runstatus file shows no progress.
 
 ## Modules
 

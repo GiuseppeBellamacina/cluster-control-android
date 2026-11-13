@@ -47,6 +47,16 @@ class ProtocolTest {
     }
 
     @Test
+    fun runStatusIsParsedWhenPresent() {
+        val base = listOf("STATUS_OK=1", "ACTIVE_JOB=", "QUEUE=", "QUEUE_COUNT=0", "LAST_JOB=", "STOPPED=0", "ERRORS_COUNT=0", "ERRORS_TAIL=[]")
+            .joinToString("\n", postfix = "\n")
+        assertNull(parseSnapshot(base).runStatus)
+        val s = parseSnapshot(base + """RUN_STATUS={"run":{"kind":"train","phase":"sft"},"progress":{"step":7}}""" + "\n")
+        assertEquals(7, (s.runStatus!!["progress"] as kotlinx.serialization.json.JsonObject)["step"].toString().toInt())
+        assertNull(parseSnapshot(base + "RUN_STATUS=garbage\n").runStatus)
+    }
+
+    @Test
     fun missingStatusOkIsProtocolError() {
         assertFailsWith<ProtocolException> { parseSnapshot("OK_TICK=1\n") }
     }
@@ -61,45 +71,28 @@ class ProtocolTest {
     }
 }
 
-class LogParsingTest {
+class SeriesTest {
     @Test
-    fun etaSeconds() {
-        assertEquals(3723L, parseEtaSeconds("1:02:03"))
-        assertEquals(754L, parseEtaSeconds("12:34"))
-        assertNull(parseEtaSeconds("?"))
-        assertNull(parseEtaSeconds("00:??"))
-        assertNull(parseEtaSeconds(null))
+    fun parsesTheRunstatusSidecar() {
+        val (total, series) = parseSeriesJson(
+            """{"schema":3,"total_steps":500,"series":{"loss":[[10,0.5],[20,0.4]],"empty":[],"bad":[["x",1]]}}""",
+        )
+        assertEquals(500, total)
+        assertEquals(listOf(Point(10, 0.5), Point(20, 0.4)), series.getValue("loss"))
+        assertTrue("empty" !in series && "bad" !in series)
     }
 
     @Test
-    fun trainingProgress() {
-        val log = """
-            [stage 1] steps=1000
-            some noise
-              step=900 loss=0.123 reward=0.55 lr=1e-5
-              step=910 loss=0.120 reward=0.56 lr=1e-5
-            50%|#####     | 910/1000 [10:00<01:30, 1.5it/s]
-        """.trimIndent()
-        val p = parseProgress(log)
-        assertEquals(910, p.step)
-        assertEquals(1000, p.total)
-        assertEquals(0.120, p.loss)
-        assertEquals(0.56, p.reward)
-        assertEquals("01:30", p.eta)
+    fun malformedOrMissingSidecarYieldsNothing() {
+        assertEquals(null to emptyMap(), parseSeriesJson(""))
+        assertEquals(null to emptyMap(), parseSeriesJson("not json"))
+        assertEquals(null to emptyMap(), parseSeriesJson("[1,2]"))
     }
 
     @Test
-    fun evalProgressFallback() {
-        assertEquals(30, parseProgress("eval progress: 30/100").step)
-        assertNull(parseProgress("nothing here").step)
-    }
-
-    @Test
-    fun seriesAndDownsample() {
-        val text = (1..100).joinToString("\n") { "  step=$it loss=${1.0 / it} reward=0.5" }
-        val s = parseSeries(text)
-        assertEquals(100, s.getValue("loss").size)
-        val d = downsample(s.getValue("loss"), 10)
+    fun downsampleKeepsBothEnds() {
+        val pts = (1..100).map { Point(it, 1.0 / it) }
+        val d = downsample(pts, 10)
         assertEquals(10, d.size)
         assertEquals(1, d.first().step)
         assertEquals(100, d.last().step)

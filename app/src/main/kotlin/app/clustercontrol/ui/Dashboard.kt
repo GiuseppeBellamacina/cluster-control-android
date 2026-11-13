@@ -44,7 +44,6 @@ import app.clustercontrol.core.downsample
 import app.clustercontrol.core.formatAgo
 import app.clustercontrol.core.formatCountdown
 import app.clustercontrol.core.nextTickAt
-import app.clustercontrol.core.parseEtaSeconds
 import app.clustercontrol.core.percentOf
 import app.clustercontrol.progressOf
 import java.util.Locale
@@ -137,7 +136,7 @@ private fun JobCard(ui: UiState, now: Long) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Caption(if (p.step != null) "${grouped(p.step)}${p.total?.let { " / ${grouped(it)}" } ?: ""}" else "")
             // counted down every second from the ETA of the last snapshot
-            val eta = parseEtaSeconds(p.eta)?.let { it - (now - (ui.snapshotAt ?: now)) / 1000 }
+            val eta = p.etaSeconds?.let { it - (now - (ui.snapshotAt ?: now)) / 1000 }
             if (eta != null && eta > 0) Caption("ETA " + formatCountdown(eta * 1000))
         }
     }

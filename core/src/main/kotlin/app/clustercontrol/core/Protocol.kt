@@ -50,7 +50,8 @@ data class Snapshot(
     val errorsTail: List<String>,
     val logPath: String? = null,
     val logTail: String? = null,
-    val liveStatus: JsonObject? = null,
+    /** The runstatus file of the active job (`RUN_STATUS`), absent when the job writes none or it is stale. */
+    val runStatus: JsonObject? = null,
 )
 
 fun parseSnapshot(stdout: String): Snapshot {
@@ -68,7 +69,7 @@ fun parseSnapshot(stdout: String): Snapshot {
     }.getOrDefault(emptyList())
     val logTail = kv["LOG_TAIL_B64"]?.takeIf { it.isNotBlank() }
         ?.let { runCatching { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }.getOrNull() }
-    val live = kv["LIVE_STATUS"]?.takeIf { it.isNotBlank() }
+    val run = kv["RUN_STATUS"]?.takeIf { it.isNotBlank() }
         ?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
     return Snapshot(
         active = active,
@@ -79,7 +80,7 @@ fun parseSnapshot(stdout: String): Snapshot {
         errorsTail = errors,
         logPath = kv["LOG_PATH"]?.takeIf { it.isNotBlank() },
         logTail = logTail,
-        liveStatus = live,
+        runStatus = run,
     )
 }
 

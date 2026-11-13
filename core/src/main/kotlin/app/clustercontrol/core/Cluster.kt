@@ -193,9 +193,8 @@ class HelperApi(private val session: ClusterSession, remoteRoot: String) {
 
     fun timeseries(tag: String): SeriesResult {
         val kv = parseKv(run("timeseries", tag).stdout)
-        val log = kv["TS_LOG_B64"]?.takeIf { it.isNotBlank() }
-            ?.let { String(java.util.Base64.getDecoder().decode(it), Charsets.UTF_8) }.orEmpty()
-        return SeriesResult(kv["TS_MATCH"] == "1", kv["TS_TOTAL_STEPS"]?.toIntOrNull(), parseSeries(log))
+        val (total, series) = parseSeriesJson(kv["TS_SERIES"].orEmpty())
+        return SeriesResult(kv["TS_MATCH"] == "1", total, series)
     }
 
     /** Empty [token] lists the available result dirs; otherwise the eval json (raw text) of every run. */

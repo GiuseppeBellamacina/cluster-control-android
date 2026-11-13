@@ -108,11 +108,13 @@ class ClusterIntegrationTest {
             val jobId = active.id
 
             // 5. monitor/timeseries/results read what the job wrote
+            // what the runstatus library writes: a one-line state file per job and the series sidecar next to it
+            assertNull(helper.monitor().runStatus, "no file yet")
             s.exec(
-                "mkdir -p ~/$PROJECT/logs && printf '[stage 1] steps=200\\n  step=10 loss=0.9 reward=0.1\\n  step=20 loss=0.8 reward=0.2\\n' > ~/$PROJECT/logs/slurm-eval-$jobId.log",
+                """mkdir -p ~/$PROJECT/logs && printf '%s' '{"run":{"kind":"eval","phase":"eval"},"progress":{"step":20,"total_steps":200,"eta_s":90},"metrics":{"latest":{"loss":0.8}}}' > ~/$PROJECT/logs/run_status-$jobId.json && printf '%s' '{"total_steps":200,"series":{"loss":[[10,0.9],[20,0.8]]}}' > ~/$PROJECT/logs/run_status-$jobId.json.series.json""",
             )
             val mon = helper.monitor()
-            assertEquals(20, parseProgress(mon.logTail.orEmpty()).step)
+            assertTrue(mon.runStatus.toString().contains(""""step":20"""), "RUN_STATUS: ${mon.runStatus}")
             val ts = helper.timeseries("it-a")
             assertTrue(ts.match)
             assertEquals(200, ts.total)

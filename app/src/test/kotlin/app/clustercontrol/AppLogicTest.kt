@@ -9,7 +9,9 @@ import app.clustercontrol.sstp.SstpException
 import com.jcraft.jsch.JSchException
 import java.io.File
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -140,8 +142,17 @@ class AppLogicTest {
     fun tagsAndProgress() {
         assertEquals("conll-2003-grpo", seriesTag("train-conll-2003-grpo"))
         assertEquals("x", seriesTag("eval-x"))
-        val p = progressOf(snap.copy(logTail = "[stage 1] steps=200\n  step=10 loss=0.9 reward=0.1\n"))
+        val run = """{"run":{"phase":"grpo"},"progress":{"step":10,"total_steps":200,"eta_s":90},
+            "metrics":{"latest":{"loss":0.9,"reward":0.1}}}"""
+        val p = progressOf(snap.copy(runStatus = Json.parseToJsonElement(run).jsonObject))
         assertEquals(10, p.step)
         assertEquals(200, p.total)
+        assertEquals(90L, p.etaSeconds)
+        assertEquals(0.9, p.loss)
+        assertEquals("grpo", p.phase)
+        // no runstatus file (and a log full of step= lines): nothing is parsed from the log
+        val none = progressOf(snap.copy(logTail = "  step=10 loss=0.9 reward=0.1\n"))
+        assertNull(none.step)
+        assertNull(none.etaSeconds)
     }
 }
