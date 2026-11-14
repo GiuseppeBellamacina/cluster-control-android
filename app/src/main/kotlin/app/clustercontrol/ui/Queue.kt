@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -94,7 +95,12 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
             actions.queueMove(from.index, to.index)
         }
     }
-    val keys = remember(items) { stableKeys(items) }
+    // A row removed with a swipe leaves its dismissed state saved under its key, and Compose hands it back when the same
+    // key returns (Annulla). The restored row then starts "already swiped" and the app crashed trying to undo that.
+    // Every removal bumps the generation of the key, so a restored row is a new row with a fresh state.
+    val generations = remember { mutableStateMapOf<String, Int>() }
+    val generationSnapshot = generations.toMap()
+    val keys = remember(items, generationSnapshot) { stableKeys(items).map { "$it@${generationSnapshot[it] ?: 0}" } }
 
     Column(modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Coda") {
@@ -117,17 +123,13 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
                         // the state is created once: read the current index, not the one of the first composition
                         val current by rememberUpdatedState(index)
                         val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { it == SwipeToDismissBoxValue.EndToStart })
-                        // a restored row (Annulla) must not come back already swiped away
-                        var armed by remember { mutableStateOf(false) }
-                        LaunchedEffect(Unit) {
-                            if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) dismiss.reset()
-                            armed = true
-                        }
-                        LaunchedEffect(dismiss.currentValue, armed) {
-                            if (armed && dismiss.currentValue == SwipeToDismissBoxValue.EndToStart) {
+                        LaunchedEffect(dismiss.currentValue) {
+                            if (dismiss.currentValue == SwipeToDismissBoxValue.EndToStart) {
                                 val i = current
                                 val title = items.getOrNull(i)?.let { JobNames.of(it).title } ?: return@LaunchedEffect
+                                val baseKey = stableKeys(items).getOrNull(i) ?: return@LaunchedEffect
                                 val removed = actions.queueRemove(i) ?: return@LaunchedEffect
+                                generations[baseKey] = (generations[baseKey] ?: 0) + 1
                                 items = items.toMutableList().also { l -> l.removeAt(i) }
                                 scope.launch {
                                     val r = snackbar.showSnackbar("Rimosso $title", "Annulla", duration = SnackbarDuration.Short)
