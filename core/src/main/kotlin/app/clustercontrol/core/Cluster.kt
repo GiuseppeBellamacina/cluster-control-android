@@ -135,7 +135,7 @@ class NoActiveJobException : Exception("no active job")
 
 data class TickResult(val snapshot: Snapshot, val tickFailed: Boolean)
 
-/** The cluster_helper.sh protocol, one ssh exec per call (the same subcommands the Render driver uses). */
+/** The cluster_helper.sh protocol, one ssh exec per call (status, monitor, tick, enqueue, rewrite_queue, pause, resume, scancel, timeseries, results). */
 class HelperApi(private val session: ClusterSession, remoteRoot: String) {
     private val helper = "$remoteRoot/cluster/cluster_helper.sh"
 
@@ -173,12 +173,6 @@ class HelperApi(private val session: ClusterSession, remoteRoot: String) {
     fun rewriteQueue(entries: List<JobEntry>) =
         snapshot(run("rewrite_queue", entries.joinToString(ENTRY_SEP.toString()) { it.toLine() }))
 
-    /** Removes every job with [tag]: rewrites the queue without them, like DELETE /jobs/{tag}. */
-    fun removeTag(tag: String): Snapshot {
-        val keep = status().queue.filter { it.tag != tag }
-        return rewriteQueue(keep)
-    }
-
     fun pause() = snapshot(run("pause"))
 
     fun resume() = snapshot(run("resume"))
@@ -193,9 +187,8 @@ class HelperApi(private val session: ClusterSession, remoteRoot: String) {
 
     fun timeseries(tag: String): SeriesResult {
         val kv = parseKv(run("timeseries", tag).stdout)
-        val log = kv["TS_LOG_B64"]?.takeIf { it.isNotBlank() }
-            ?.let { String(java.util.Base64.getDecoder().decode(it), Charsets.UTF_8) }.orEmpty()
-        return SeriesResult(kv["TS_MATCH"] == "1", kv["TS_TOTAL_STEPS"]?.toIntOrNull(), parseSeries(log))
+        val (total, series) = parseSeriesJson(kv["TS_SERIES"].orEmpty())
+        return SeriesResult(kv["TS_MATCH"] == "1", total, series)
     }
 
     /** Empty [token] lists the available result dirs; otherwise the eval json (raw text) of every run. */

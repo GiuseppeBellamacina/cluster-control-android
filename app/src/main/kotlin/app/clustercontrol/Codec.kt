@@ -36,7 +36,7 @@ fun Snapshot.toJson(): JsonObject = buildJsonObject {
     put("errorsTail", JsonArray(errorsTail.map { JsonPrimitive(it) }))
     put("logPath", logPath)
     put("logTail", logTail)
-    put("live", liveStatus ?: JsonNull)
+    put("run", runStatus ?: JsonNull)
 }
 
 fun snapshotFromJson(o: JsonObject): Snapshot = Snapshot(
@@ -50,7 +50,7 @@ fun snapshotFromJson(o: JsonObject): Snapshot = Snapshot(
     errorsTail = o["errorsTail"]!!.jsonArray.map { it.jsonPrimitive.content },
     logPath = o.str("logPath"),
     logTail = o.str("logTail"),
-    liveStatus = o["live"] as? JsonObject,
+    runStatus = o["run"] as? JsonObject,
 )
 
 fun Schedule.toJson(): JsonObject = buildJsonObject {
@@ -85,6 +85,8 @@ fun AppState.toJson(): JsonObject = buildJsonObject {
     put("snapshot", snapshot?.toJson() ?: JsonNull)
     put("snapshotAt", snapshotAt)
     put("schedulesVersion", schedulesVersion)
+    put("autoAdvance", autoAdvance)
+    put("theme", theme)
 }
 
 fun stateFromJson(o: JsonObject) = AppState(
@@ -93,5 +95,7 @@ fun stateFromJson(o: JsonObject) = AppState(
     snapshot = (o["snapshot"] as? JsonObject)?.let(::snapshotFromJson),
     snapshotAt = (o["snapshotAt"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull(),
     schedulesVersion = (o["schedulesVersion"] as? JsonPrimitive)?.intOrNull ?: 0,
+    autoAdvance = (o["autoAdvance"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() ?: true,
+    theme = o.str("theme") ?: "system",
 )
 

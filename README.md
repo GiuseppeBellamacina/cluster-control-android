@@ -22,9 +22,17 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 
 ## Features
 
-- **Dashboard**: active job with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
+- **Dashboard**: active job (train/eval, queue size) with big completion %, live ETA, loss/reward charts, countdown to the next tick, last tick result.
 - **Queue**: drag and drop reorder, swipe to delete with undo, add jobs or presets from a sheet, pause, kill.
 - **Log**: raw log of the active job.
+- **Automatic start**: when a job ends and others wait, the app asks the cluster to start the next one right away (with the
+  app open, within seconds; with it closed, a check is scheduled for when the job should end, plus one every 15 minutes).
+  If the job does not start it retries with a growing delay and notifies once after the last attempt. The cluster scripts
+  keep the real chain logic: a train that hits the 12 h limit, runs out of memory or crashes is put back with `--resume`
+  up to twice. The forced tick stays as an optional fallback (off by default). The Dashboard shows "Ripresa automatica 1/2"
+  on a resumed job and the latest cluster errors.
+- **Themes**: Altro > Aspetto: follow the phone, or Chiaro, Scuro, Nero (AMOLED), Seppia, Oceano, Foresta. Every colour the
+  UI uses comes from one palette, so adding a theme is one entry in `Themes.kt`.
 - **Automations**: tick or script sync on an interval (WorkManager, 15 min minimum), also with the app closed. Exclude the
   app from battery optimization when asked, otherwise Android may skip them. Only a real credential rejection suspends
   the automations; timeouts and network errors just wait for the next slot.
@@ -47,6 +55,17 @@ Rendered on the JVM with sample data (Paparazzi), not taken from a device.
 - **More**: connection check (VPN, ssh, cluster), history of every operation, updates, configuration, security.
 - While the app is open it keeps one tunnel and one ssh session alive and refreshes every few seconds;
   in the background it opens short-lived sessions only for scheduled runs.
+
+## Monitoring: the training reports its own progress
+
+The app does not parse logs. The job writes its state with [runstatus](https://github.com/GiuseppeBellamacina/runstatus)
+(`run_status/<jobid>.json` plus `<jobid>.series.json`, in a folder of their own next to the SLURM logs); the project's
+`cluster/cluster_helper.sh` hands them over as `RUN_STATUS` (monitor) and `TS_SERIES` (charts). The Dashboard shows
+progress and live ETA (the total comes from the trainer, never above 100%), loss and reward charts, the reward of every
+component of an RL run with its own chart, the other metrics the job reports (learning rate, gradient norm, KL, lengths,
+GPU memory) and, for an evaluation, its final scores. The card also says what is running: algorithm (SFT, GRPO, PPO, DPO, ...), model and family (LLM, neural net, ML model, ...), free chips (LoRA, 4-bit, dataset) and a stepper of the planned stages (SFT ✓ › GRPO ▶ › Eval), each with an icon. All of it is declared by the training, so a new kind of run needs no app change; icons are SVG line drawings; an unknown icon id shows as text. The Log tab has a second page with the latest completions: prompt,
+output, gold and the reward of each component. To monitor your own training, add the runstatus callback to it (3 lines,
+see that README); the raw log is only shown in the Log tab. A job that writes no runstatus file shows no progress.
 
 ## Modules
 

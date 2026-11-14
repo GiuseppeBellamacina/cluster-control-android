@@ -1,5 +1,7 @@
 package app.clustercontrol
 
+import app.clustercontrol.core.Advance
+import app.clustercontrol.core.AutoAdvance
 import app.clustercontrol.core.ClusterSession
 import app.clustercontrol.core.GithubFetcher
 import app.clustercontrol.core.HelperApi
@@ -11,6 +13,9 @@ import app.clustercontrol.core.SyncEngine
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.SyncStatus
 import app.clustercontrol.core.Transport
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class StepState { IDLE, RUNNING, OK, FAIL }
 
@@ -22,7 +27,12 @@ class ClusterOps(
     private val connector: Connector,
     private val stores: Stores,
     private val recorder: Recorder,
+    private val advancer: AutoAdvance = AutoAdvance(),
+    private val notifier: Notifier = Notifier { _, _, _ -> },
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    private val advanceLock = Mutex()
+
     private fun engine() = SyncEngine(GithubFetcher(), Creds.repo, Creds.branch)
 
     /** [block] followed by a fresh monitor, so the log and progress are current right after the change. */
@@ -44,13 +54,40 @@ class ClusterOps(
         return if (r.skipped.isEmpty()) base else "$base; ${r.skipped.size} di codice rimandati (job in corso)"
     }
 
-    suspend fun run(action: ScheduleAction, source: String, auto: Boolean) = when (action) {
+    /** [advance] may have nothing to do: then there is no history entry. */
+    suspend fun run(action: ScheduleAction, source: String, auto: Boolean): HistoryEntry? = when (action) {
         ScheduleAction.TICK -> tick(source, auto)
         ScheduleAction.SYNC -> sync(source, auto)
         ScheduleAction.STATUS -> status(source, auto)
+        ScheduleAction.ADVANCE -> advance(source)
     }
 
-    suspend fun tick(source: String, auto: Boolean) = recorder.record(Op.TICK, source, auto) {
+    /**
+     * Starts the next job when the cluster sits idle with jobs waiting. [known]: a snapshot the caller has just fetched
+     * (the live session polls every few seconds); otherwise the cluster is asked, with a short-lived session.
+     * Failed attempts back off and, after the last one, the owner is told once ([NoticeIds.STUCK]).
+     */
+    suspend fun advance(source: String, known: Snapshot? = null): HistoryEntry? = advanceLock.withLock {
+        val st = stores.state.value
+        if (!st.autoAdvance || st.autoSuspended) return@withLock null
+        val snap = known ?: try {
+            live.exec(keep = false) { _, h -> h.monitor(LiveSession.MONITOR_LINES) }.also(live::publish)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            recorder.handleFailure(e)
+            return@withLock null
+        }
+        if (advancer.decide(snap, clock()) != Advance.Tick) return@withLock null
+        val entry = tick(source, auto = true)
+        val after = if (entry.ok) stores.state.value.snapshot else null
+        (advancer.ticked(after, clock()) as? Advance.GiveUp)?.let { notifier.notify(NoticeIds.STUCK, "Il prossimo job non parte", it.message) }
+        entry
+    }
+
+    suspend fun tick(source: String, auto: Boolean): HistoryEntry {
+        if (!auto) advancer.reset() // the owner acted: start the automatic attempts from scratch
+        return recorder.record(Op.TICK, source, auto) {
         var prefix = ""
         var failed = false
         val snap = mutating(auto) { s, h ->
@@ -66,6 +103,7 @@ class ClusterOps(
         live.publish(snap)
         if (failed) throw ActionFailed("Tick fallito sul cluster (${describe(snap)})")
         prefix + "Tick ok: " + describe(snap)
+        }
     }
 
     suspend fun status(source: String, auto: Boolean) = recorder.record(Op.STATUS, source, auto) {

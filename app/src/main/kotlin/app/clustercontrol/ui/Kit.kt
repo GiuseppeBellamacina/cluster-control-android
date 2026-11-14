@@ -27,6 +27,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -42,36 +43,46 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
+/** The colours in use. [p] is set by [AppTheme] before the content is composed (a theme change recomposes everything). */
 object C {
-    val Bg = Color(0xFFF2F2F7)
-    val Card = Color.White
-    val Ink = Color(0xFF111318)
-    val Accent = Color(0xFF0A6CFF)
-    val AccentSoft = Color(0xFFE4F0FF)
-    val Green = Color(0xFF34C759)
-    val GreenText = Color(0xFF1F8A3A)
-    val GreenSoft = Color(0xFFE1F6E7)
-    val Red = Color(0xFFFF3B30)
-    val RedSoft = Color(0xFFFDE8E7)
-    val Muted = Color(0xFF6B7280)
-    val Faint = Color(0xFF8B909A)
-    val Sep = Color(0xFFECECF0)
-    val Track = Color(0xFFE5E5EA)
-    val SegBg = Color(0xFFE6E6EA)
+    var p: Palette = Themes.LIGHT
+    val Bg get() = p.bg
+    val Card get() = p.card
+    val Ink get() = p.ink
+    val Accent get() = p.accent
+    val AccentSoft get() = p.accentSoft
+    val OnAccent get() = p.onAccent
+    val Green get() = p.green
+    val GreenText get() = p.greenText
+    val GreenSoft get() = p.greenSoft
+    val Red get() = p.red
+    val RedSoft get() = p.redSoft
+    val Muted get() = p.muted
+    val Faint get() = p.faint
+    val Sep get() = p.sep
+    val Track get() = p.track
+    val SegBg get() = p.segBg
+    val SegThumb get() = p.segThumb
+    val SwitchOff get() = p.switchOff
+    val MonoInk get() = p.mono
+    val Hairline get() = p.hairline
 }
 
-private val Scheme = lightColorScheme(
-    primary = C.Accent, onPrimary = Color.White, secondary = C.Accent, background = C.Bg, onBackground = C.Ink,
-    surface = C.Card, onSurface = C.Ink, surfaceVariant = C.Bg, onSurfaceVariant = C.Muted, error = C.Red,
-    outline = C.Sep, outlineVariant = C.Sep, surfaceContainer = C.Card, surfaceContainerHigh = C.Card,
-    surfaceContainerLow = C.Card, surfaceContainerHighest = C.Card, surfaceContainerLowest = C.Card,
+private fun scheme(p: Palette) = (if (p.dark) darkColorScheme() else lightColorScheme()).copy(
+    primary = p.accent, onPrimary = p.onAccent, secondary = p.accent, background = p.bg, onBackground = p.ink,
+    surface = p.card, onSurface = p.ink, surfaceVariant = p.bg, onSurfaceVariant = p.muted, error = p.red,
+    outline = p.sep, outlineVariant = p.sep, surfaceContainer = p.card, surfaceContainerHigh = p.card,
+    surfaceContainerLow = p.card, surfaceContainerHighest = p.card, surfaceContainerLowest = p.card,
 )
 
-/** Light only: no dark theme and no dynamic colour, on purpose. */
+/** One palette at a time, no dynamic colour. Changing it rebuilds the content so every [C] read is fresh. */
 @Composable
-fun AppTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = Scheme, content = content)
+fun AppTheme(palette: Palette, content: @Composable () -> Unit) {
+    C.p = palette
+    androidx.compose.runtime.key(palette.id) { MaterialTheme(colorScheme = scheme(palette), content = content) }
+}
 
-val Mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.5.sp, lineHeight = 16.sp, color = Color(0xFF2A2F3A))
+val Mono get() = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.5.sp, lineHeight = 16.sp, color = C.MonoInk)
 
 @Composable
 fun rememberNow(everyMs: Long = 1000): State<Long> = produceState(System.currentTimeMillis()) {
@@ -141,12 +152,12 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, filled
     Button(
         onClick, modifier.height(46.dp), enabled = enabled && !busy, shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (filled) C.Accent else C.AccentSoft, contentColor = if (filled) Color.White else C.Accent,
-            disabledContainerColor = if (filled) C.Accent.copy(alpha = .5f) else C.AccentSoft, disabledContentColor = if (filled) Color.White else C.Accent.copy(alpha = .5f),
+            containerColor = if (filled) C.Accent else C.AccentSoft, contentColor = if (filled) C.OnAccent else C.Accent,
+            disabledContainerColor = if (filled) C.Accent.copy(alpha = .5f) else C.AccentSoft, disabledContentColor = if (filled) C.OnAccent else C.Accent.copy(alpha = .5f),
         ),
         contentPadding = PaddingValues(horizontal = 12.dp),
     ) {
-        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = if (filled) Color.White else C.Accent)
+        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = if (filled) C.OnAccent else C.Accent)
         else Text(text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
@@ -156,7 +167,7 @@ fun GreenSwitch(checked: Boolean, onChange: (Boolean) -> Unit) = Switch(
     checked, onChange,
     colors = SwitchDefaults.colors(
         checkedThumbColor = Color.White, checkedTrackColor = C.Green, checkedBorderColor = C.Green,
-        uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFFD9D9DE), uncheckedBorderColor = Color(0xFFD9D9DE),
+        uncheckedThumbColor = Color.White, uncheckedTrackColor = C.SwitchOff, uncheckedBorderColor = C.SwitchOff,
     ),
 )
 
@@ -168,7 +179,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
             val on = i == selected
             Box(
                 Modifier.weight(1f)
-                    .then(if (on) Modifier.shadow(1.dp, RoundedCornerShape(6.dp)).background(Color.White, RoundedCornerShape(6.dp)) else Modifier)
+                    .then(if (on) Modifier.shadow(1.dp, RoundedCornerShape(6.dp)).background(C.SegThumb, RoundedCornerShape(6.dp)) else Modifier)
                     .clickable { onSelect(i) }
                     .padding(vertical = 6.dp),
                 contentAlignment = Alignment.Center,

@@ -72,9 +72,10 @@ class Stores(private val dir: File) {
 
     companion object {
         const val HISTORY_MAX = 200
-        const val SCHEDULES_VERSION = 2
+        const val SCHEDULES_VERSION = 3
         val SEED = listOf(
-            Schedule("tick-60", "Tick ogni 60 min", ScheduleAction.TICK, 60, enabled = true),
+            Schedule("advance-15", "Controlla la coda ogni 15 min", ScheduleAction.ADVANCE, 15, enabled = true),
+            Schedule("tick-60", "Tick forzato ogni 60 min", ScheduleAction.TICK, 60, enabled = false),
             Schedule("sync-24h", "Sync script ogni 24 h", ScheduleAction.SYNC, 1440, enabled = false),
         )
     }

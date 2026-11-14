@@ -48,7 +48,7 @@ import app.clustercontrol.UiState
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.formatAgo
 
-val MORE_SECTIONS = listOf("Sincronizza", "Connessione", "Storico", "Aggiornamenti", "Configurazione", "Sicurezza")
+val MORE_SECTIONS = listOf("Aspetto", "Sincronizza", "Connessione", "Storico", "Aggiornamenti", "Configurazione", "Sicurezza")
 
 @Composable
 fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> Unit, modifier: Modifier) {
@@ -73,6 +73,7 @@ fun MoreScreen(ui: UiState, actions: Actions, sub: String?, open: (String?) -> U
         }
         Header(sub) { LinkText("‹ Altro") { open(null) } }
         when (sub) {
+            "Aspetto" -> AppearanceSection(ui, actions)
             "Sincronizza" -> SyncSection(ui, actions)
             "Connessione" -> ConnectionSection(ui, actions)
             "Aggiornamenti" -> UpdateSection(ui, actions)

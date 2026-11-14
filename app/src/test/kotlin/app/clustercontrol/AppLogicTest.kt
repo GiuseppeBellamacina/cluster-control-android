@@ -5,14 +5,18 @@ import app.clustercontrol.core.HelperMissingException
 import app.clustercontrol.core.HostKeyChangedException
 import app.clustercontrol.core.JobEntry
 import app.clustercontrol.core.Snapshot
+import app.clustercontrol.ui.iconPath
 import app.clustercontrol.sstp.SstpException
 import com.jcraft.jsch.JSchException
 import java.io.File
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -74,23 +78,24 @@ class AppLogicTest {
     @Test
     fun freshInstallSeedsTheDefaults() {
         val s = Stores(tmp())
-        assertEquals(listOf("tick-60" to true, "sync-24h" to false), s.schedules.value.map { it.id to it.enabled })
-        assertEquals(listOf("tick-60"), desiredWork(s.schedules.value, AppState()).map { it.id })
+        // the automatic start is on; the forced tick and the script sync are opt-in
+        assertEquals(listOf("advance-15" to true, "tick-60" to false, "sync-24h" to false), s.schedules.value.map { it.id to it.enabled })
+        assertEquals(listOf("advance-15"), desiredWork(s.schedules.value, AppState()).map { it.id })
     }
 
     @Test
     fun oldInstallsAreMigratedOnceAndThenLeftAlone() {
         val dir: File = tmp()
-        // v1 stored: both schedules off, no version marker in the state
+        // an old install: its schedules were all off and there is no version marker in the state
         File(dir, "schedules.json").writeText(
             JsonArray(Stores.SEED.map { it.copy(enabled = false).toJson() }).toString(),
         )
         val migrated = Stores(dir)
-        assertTrue(migrated.schedules.value.first { it.id == "tick-60" }.enabled)
+        assertTrue(migrated.schedules.value.first { it.id == "advance-15" }.enabled)
         assertEquals(Stores.SCHEDULES_VERSION, migrated.state.value.schedulesVersion)
-        // the user switches the tick off: a restart must not turn it back on
-        migrated.saveSchedules(migrated.schedules.value.map { if (it.id == "tick-60") it.copy(enabled = false) else it })
-        assertFalse(Stores(dir).schedules.value.first { it.id == "tick-60" }.enabled)
+        // the user switches it off: a restart must not turn it back on
+        migrated.saveSchedules(migrated.schedules.value.map { if (it.id == "advance-15") it.copy(enabled = false) else it })
+        assertFalse(Stores(dir).schedules.value.first { it.id == "advance-15" }.enabled)
     }
 
     @Test
@@ -137,11 +142,66 @@ class AppLogicTest {
     }
 
     @Test
+    fun themesResolveAndAreReadable() {
+        val themes = app.clustercontrol.ui.Themes
+        assertEquals(themes.DARK, themes.resolve("system", systemDark = true))
+        assertEquals(themes.LIGHT, themes.resolve("system", systemDark = false))
+        assertEquals(themes.LIGHT, themes.resolve("a-theme-that-no-longer-exists", systemDark = false))
+        assertEquals(themes.SEPIA, themes.resolve("sepia", systemDark = true), "a chosen theme ignores the phone")
+        assertEquals(themes.all.size, themes.all.map { it.id }.toSet().size, "ids are unique")
+        for (p in themes.all) {
+            // text must stand out from its background and the accent must carry the text written on it
+            assertTrue(contrast(p.ink, p.bg) >= 7.0, "${p.id}: ink on background")
+            assertTrue(contrast(p.ink, p.card) >= 7.0, "${p.id}: ink on card")
+            assertTrue(contrast(p.onAccent, p.accent) >= 3.0, "${p.id}: text on accent")
+            assertTrue(contrast(p.muted, p.card) >= 3.0, "${p.id}: secondary text")
+        }
+    }
+
+    private fun lum(c: androidx.compose.ui.graphics.Color): Double {
+        fun ch(v: Float) = v.toDouble().let { if (it <= 0.03928) it / 12.92 else Math.pow((it + 0.055) / 1.055, 2.4) }
+        return 0.2126 * ch(c.red) + 0.7152 * ch(c.green) + 0.0722 * ch(c.blue)
+    }
+
+    private fun contrast(a: androidx.compose.ui.graphics.Color, b: androidx.compose.ui.graphics.Color): Double {
+        val (hi, lo) = lum(a).coerceAtLeast(lum(b)) to lum(a).coerceAtMost(lum(b))
+        return (hi + 0.05) / (lo + 0.05)
+    }
+
+    @Test
+    fun iconIdsBecomeSvgPathsOrNothing() {
+        val icons: (String?) -> String? = ::iconPath
+        assertNotNull(icons("grpo"))
+        assertEquals(icons("grpo"), icons(" GRPO "))
+        assertEquals(icons("sft"), icons("supervised"))
+        assertNull(icons("some-unknown-method"))
+        assertNull(icons("🔥"), "an emoji is not an icon id")
+        assertNull(icons(null))
+        for (id in listOf(
+            "train", "eval", "inference", "sft", "grpo", "ppo", "dpo", "rl", "pretrain", "finetune", "distill", "llm", "nn",
+            "cnn", "rnn", "transformer", "ml", "tree", "diffusion", "vision", "speech", "gpu", "data",
+            "state-done", "state-running", "state-failed",
+        )) {
+            val d = assertNotNull(icons(id), id)
+            assertTrue(Regex("""M[MmLlHhVvCcSsQqTtAaZz0-9eE., \-]+""").matches(d), "$id: $d")
+        }
+    }
+
+    @Test
     fun tagsAndProgress() {
         assertEquals("conll-2003-grpo", seriesTag("train-conll-2003-grpo"))
         assertEquals("x", seriesTag("eval-x"))
-        val p = progressOf(snap.copy(logTail = "[stage 1] steps=200\n  step=10 loss=0.9 reward=0.1\n"))
+        val run = """{"run":{"phase":"grpo"},"progress":{"step":10,"total_steps":200,"eta_s":90},
+            "metrics":{"latest":{"loss":0.9,"reward":0.1}}}"""
+        val p = progressOf(snap.copy(runStatus = Json.parseToJsonElement(run).jsonObject))
         assertEquals(10, p.step)
         assertEquals(200, p.total)
+        assertEquals(90L, p.etaSeconds)
+        assertEquals(0.9, p.loss)
+        assertEquals("grpo", p.phase)
+        // no runstatus file (and a log full of step= lines): nothing is parsed from the log
+        val none = progressOf(snap.copy(logTail = "  step=10 loss=0.9 reward=0.1\n"))
+        assertNull(none.step)
+        assertNull(none.etaSeconds)
     }
 }

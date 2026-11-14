@@ -15,6 +15,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -22,8 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.clustercontrol.Link
 import app.clustercontrol.UiState
+import app.clustercontrol.core.parseRunStatus
 
-/** The raw log of the active job; the live session refreshes it every few seconds. */
+/** The raw log of the active job and, next to it, the latest completions the training reported; refreshed live. */
 @Composable
 fun LogScreen(ui: UiState, modifier: Modifier) {
     val snap = ui.snapshot
@@ -39,12 +44,19 @@ fun LogScreen(ui: UiState, modifier: Modifier) {
                 Text(if (live) "Live" else "Offline", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (live) C.GreenText else C.Muted)
             }
         }
-        Card(Modifier.weight(1f)) {
-            if (text.isEmpty()) {
-                Caption(if (snap == null) "Nessun dato" else "Nessun job attivo")
-            } else {
-                Text(text, Modifier.fillMaxWidth().verticalScroll(scroll), style = Mono)
+        var tab by remember { mutableIntStateOf(0) }
+        Segmented(listOf("Log", "Campioni"), tab, { tab = it })
+        if (tab == 0) {
+            Card(Modifier.weight(1f)) {
+                if (text.isEmpty()) {
+                    Caption(if (snap == null) "Nessun dato" else "Nessun job attivo")
+                } else {
+                    Text(text, Modifier.fillMaxWidth().verticalScroll(scroll), style = Mono)
+                }
             }
+        } else {
+            val samples = if (snap?.active == null) emptyList() else parseRunStatus(snap.runStatus)?.samples.orEmpty()
+            SamplesList(samples, Modifier.weight(1f).verticalScroll(rememberScrollState()))
         }
     }
 }

@@ -103,7 +103,7 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
             Box {
                 var menu by remember { mutableStateOf(false) }
                 IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, "Altro", tint = C.Accent) }
-                DropdownMenu(menu, { menu = false }, containerColor = Color.White) {
+                DropdownMenu(menu, { menu = false }, containerColor = C.Card) {
                     DropdownMenuItem({ Text("Kill job attivo", color = C.Red) }, { menu = false; confirm = "kill" })
                     DropdownMenuItem({ Text("Svuota coda", color = C.Red) }, { menu = false; confirm = "clear" })
                 }
@@ -179,7 +179,7 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
                 }) { Text(if (kill) "Kill" else "Svuota", color = C.Red) }
             },
             dismissButton = { TextButton({ confirm = null }) { Text("Annulla") } },
-            containerColor = Color.White,
+            containerColor = C.Card,
         )
     }
 }
@@ -210,7 +210,7 @@ private fun Grip(modifier: Modifier) {
         val r = 1.8.dp.toPx()
         for (cx in listOf(size.width / 2 - 4.dp.toPx(), size.width / 2 + 4.dp.toPx())) {
             for (cy in listOf(size.height / 2 - 7.dp.toPx(), size.height / 2, size.height / 2 + 7.dp.toPx())) {
-                drawCircle(Color(0xFFB4B8C0), r, androidx.compose.ui.geometry.Offset(cx, cy))
+                drawCircle(C.Faint, r, androidx.compose.ui.geometry.Offset(cx, cy))
             }
         }
     }
@@ -274,7 +274,7 @@ private fun SmallBtn(text: String, filled: Boolean, onClick: () -> Unit) {
     Text(
         text,
         Modifier.background(if (filled) C.Accent else C.AccentSoft, RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 7.dp),
-        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (filled) Color.White else C.Accent,
+        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (filled) C.OnAccent else C.Accent,
     )
 }
 

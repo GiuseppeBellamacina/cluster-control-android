@@ -1,0 +1,165 @@
+{
+ "schema": 3,
+ "run": {
+  "id": "3a26f1d5",
+  "name": "train-aslg-grpo",
+  "kind": "train",
+  "phase": "grpo",
+  "state": "running",
+  "started_at": "2026-11-13T18:09:41",
+  "host": "node01",
+  "pid": 1,
+  "slurm_job_id": null,
+  "method": "grpo",
+  "model": {
+   "family": "llm",
+   "name": "Qwen2.5-0.5B-Instruct",
+   "params": "0.5B"
+  },
+  "stage": "grpo",
+  "stages": [
+   {
+    "id": "sft",
+    "label": "SFT",
+    "icon": "sft",
+    "state": "done",
+    "step": 7710,
+    "total": 7770
+   },
+   {
+    "id": "grpo",
+    "label": "GRPO",
+    "icon": "grpo",
+    "state": "running"
+   },
+   {
+    "id": "eval",
+    "label": "Eval",
+    "icon": "eval",
+    "state": "pending"
+   }
+  ],
+  "badges": [
+   {
+    "label": "LoRA r=32",
+    "icon": null
+   },
+   {
+    "label": "4bit",
+    "icon": "gpu"
+   }
+  ],
+  "updated_at": "2026-11-13T18:09:41"
+ },
+ "progress": {
+  "step": 3000,
+  "total_steps": 5000,
+  "epoch": null,
+  "pct": 60.0,
+  "eta_s": 0,
+  "steps_per_s": 14028.7769
+ },
+ "metrics": {
+  "latest": {
+   "loss": 0.018257418583505537,
+   "reward": 0.8571428571428571,
+   "reward_std": 0.1,
+   "kl": 0.01,
+   "lr": 5e-06,
+   "grad_norm": 0.3,
+   "rewards/bleu_reward": 0.5,
+   "rewards/gloss_order_reward": 0.8,
+   "completions/mean_length": 12.0,
+   "grammar/masked_mass_avg": 0.97
+  },
+  "best": {
+   "loss": 0.011388664808568193,
+   "reward": 0.8571428571428571,
+   "reward_std": 0.1,
+   "rewards/bleu_reward": 0.5,
+   "rewards/gloss_order_reward": 0.8
+  },
+  "mean": {
+   "reward": 0.43,
+   "reward_std": 0.1,
+   "rewards/bleu_reward": 0.5,
+   "rewards/gloss_order_reward": 0.8
+  },
+  "moving": {
+   "reward": 0.787143,
+   "reward_std": 0.1,
+   "rewards/bleu_reward": 0.5,
+   "rewards/gloss_order_reward": 0.8
+  },
+  "stats": {
+   "reward": {
+    "min": 0.002857142857142857,
+    "max": 0.8571428571428571
+   },
+   "reward_std": {
+    "min": 0.1,
+    "max": 0.1
+   },
+   "rewards/bleu_reward": {
+    "min": 0.5,
+    "max": 0.5
+   },
+   "rewards/gloss_order_reward": {
+    "min": 0.8,
+    "max": 0.8
+   }
+  }
+ },
+ "eval": {
+  "active": false,
+  "progress": null
+ },
+ "wandb": {},
+ "samples": [
+  {
+   "prompt": "the man walks",
+   "output": "MAN WALK",
+   "gold": "MAN WALK",
+   "match": true,
+   "rewards": {
+    "bleu_reward": 1.0,
+    "gloss_order_reward": 1.0
+   },
+   "total": 2.0
+  },
+  {
+   "prompt": "she sleeps",
+   "output": "SHE",
+   "gold": "SHE SLEEP",
+   "match": false,
+   "rewards": {
+    "bleu_reward": -0.2,
+    "gloss_order_reward": 0.5
+   },
+   "total": 0.3
+  }
+ ],
+ "events": [
+  {
+   "t": "2026-11-13T18:09:41",
+   "step": null,
+   "msg": "stage: SFT"
+  },
+  {
+   "t": "2026-11-13T18:09:41",
+   "step": null,
+   "msg": "stage: GRPO"
+  },
+  {
+   "t": "2026-11-13T18:09:41",
+   "step": 3000,
+   "msg": "checkpoint saved at step 3000"
+  }
+ ],
+ "extra": {},
+ "note": null,
+ "gpu": {
+  "mem_gb": 11.4
+ },
+ "series_file": "123.series.json"
+}

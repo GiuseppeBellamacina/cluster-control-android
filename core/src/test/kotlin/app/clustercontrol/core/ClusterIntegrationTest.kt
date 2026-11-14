@@ -56,6 +56,52 @@ class ClusterIntegrationTest {
         }
     }
 
+    /**
+     * The cluster's own retry policy, against the real chain scripts: a train that hits the time limit is put back with
+     * --resume (at most MAX_RESUMES times), also when it was the only job in the queue.
+     */
+    @Test
+    fun aTrainThatHitsTheTimeLimitIsResumedUpToTwoTimes() {
+        val cfg = itConfig()
+        ClusterSession.open(cfg, DirectTransport, memoryKeys).use { s ->
+          try {
+            val helper = HelperApi(s, "~/$PROJECT")
+            SyncEngine(DirFetcher(File(System.getenv("CC_IT_REPO_DIR"))), "owner/repo").apply(SshRemoteStore(s, PROJECT))
+            s.exec("rm -f /tmp/fakeslurm/active ~/$PROJECT/.chain_state/last_job")
+            helper.rewriteQueue(emptyList())
+            helper.resume()
+            val cfgPath = "experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml"
+            var job = assertNotNull(helper.enqueue(listOf(buildEntry("train", cfgPath, "it-timeout")), startNow = true).snapshot.active).id
+
+            for (attempt in 1..MAX_RESUMES) {
+                // the job runs into the 12 h limit: the scheduler reports TIMEOUT and nothing else is queued
+                s.exec("rm -f /tmp/fakeslurm/active; echo TIMEOUT > /tmp/fakeslurm/state-$job")
+                val snap = helper.tick().snapshot
+                val resumed = assertNotNull(snap.active, "attempt $attempt: the train should have been resumed")
+                assertTrue(resumed.id != job)
+                assertEquals(attempt, snap.lastJob?.retries)
+                assertEquals("TIMEOUT", parseJobError(snap.errorsTail.last())?.errorType)
+                assertTrue(parseJobError(snap.errorsTail.last())?.willRetry == true)
+                job = resumed.id
+            }
+
+            // the third timeout exceeds the retries: the chain stops and says so
+            s.exec("rm -f /tmp/fakeslurm/active; echo TIMEOUT > /tmp/fakeslurm/state-$job")
+            val last = helper.tick().snapshot
+            assertNull(last.active, "no more resumes after $MAX_RESUMES")
+            assertTrue(last.queue.isEmpty())
+            assertEquals(false, parseJobError(last.errorsTail.last())?.willRetry)
+            // another tick changes nothing (no error spam, no new job)
+            val again = helper.tick().snapshot
+            assertNull(again.active)
+            assertEquals(last.errorsCount, again.errorsCount)
+          } finally {
+            // the other test starts from an empty cluster
+            s.exec("rm -rf ~/$PROJECT /tmp/fakeslurm")
+          }
+        }
+    }
+
     @Test
     fun fullClusterFlow() {
         val cfg = itConfig()
@@ -95,7 +141,7 @@ class ClusterIntegrationTest {
             val a = buildEntry("eval", cfgPath, "it-a")
             val b = buildEntry("eval", cfgPath, "it-b", "--resume")
             assertEquals(2, helper.enqueue(listOf(a, b)).snapshot.queue.size)
-            assertEquals(listOf(b), helper.removeTag("it-a").queue)
+            assertEquals(listOf(b), helper.rewriteQueue(listOf(b)).queue)
             assertTrue(helper.rewriteQueue(emptyList()).queue.isEmpty())
             assertTrue(helper.pause().stopped)
             assertTrue(!helper.resume().stopped)
@@ -108,11 +154,13 @@ class ClusterIntegrationTest {
             val jobId = active.id
 
             // 5. monitor/timeseries/results read what the job wrote
+            // what the runstatus library writes: a one-line state file per job and the series sidecar next to it
+            assertNull(helper.monitor().runStatus, "no file yet")
             s.exec(
-                "mkdir -p ~/$PROJECT/logs && printf '[stage 1] steps=200\\n  step=10 loss=0.9 reward=0.1\\n  step=20 loss=0.8 reward=0.2\\n' > ~/$PROJECT/logs/slurm-eval-$jobId.log",
+                """mkdir -p ~/$PROJECT/run_status && printf '%s' '{"run":{"kind":"eval","phase":"eval"},"progress":{"step":20,"total_steps":200,"eta_s":90},"metrics":{"latest":{"loss":0.8}}}' > ~/$PROJECT/run_status/$jobId.json && printf '%s' '{"total_steps":200,"series":{"loss":[[10,0.9],[20,0.8]]}}' > ~/$PROJECT/run_status/$jobId.series.json""",
             )
             val mon = helper.monitor()
-            assertEquals(20, parseProgress(mon.logTail.orEmpty()).step)
+            assertTrue(mon.runStatus.toString().contains(""""step":20"""), "RUN_STATUS: ${mon.runStatus}")
             val ts = helper.timeseries("it-a")
             assertTrue(ts.match)
             assertEquals(200, ts.total)

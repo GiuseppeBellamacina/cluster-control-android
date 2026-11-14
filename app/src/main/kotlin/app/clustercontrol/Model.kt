@@ -1,10 +1,7 @@
 package app.clustercontrol
 
 import app.clustercontrol.core.Snapshot
-import app.clustercontrol.core.parseProgress
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
+import app.clustercontrol.core.parseRunStatus
 
 /** Everything the app records in the history; [name] is what is stored. */
 enum class Op(val label: String) {
@@ -34,6 +31,10 @@ data class AppState(
     val snapshot: Snapshot? = null,
     val snapshotAt: Long? = null,
     val schedulesVersion: Int = 0,
+    /** Start the next job by itself when the previous one is over (the periodic tick stays as a fallback). */
+    val autoAdvance: Boolean = true,
+    /** Id of the colour theme (see [Themes]); "system" follows the phone. */
+    val theme: String = "system",
 )
 
 data class Progress(
@@ -41,22 +42,20 @@ data class Progress(
     val total: Int?,
     val loss: Double?,
     val reward: Double?,
-    val eta: String?,
+    val etaSeconds: Long?,
     val phase: String?,
 )
 
-/** live_status.json is the primary source (like the Render driver); the log tail is the fallback. */
+/** The runstatus file of the active job is the only source: no log parsing. Absent file: all null. */
 fun progressOf(s: Snapshot): Progress {
-    val log = parseProgress(s.logTail.orEmpty())
-    val live = s.liveStatus
-    fun num(k: String) = (live?.get(k) as? JsonPrimitive)?.doubleOrNull
+    val v = parseRunStatus(s.runStatus)
     return Progress(
-        step = num("step")?.toInt() ?: log.step,
-        total = num("total_steps")?.toInt() ?: log.total,
-        loss = num("loss") ?: log.loss,
-        reward = num("reward") ?: log.reward,
-        eta = log.eta,
-        phase = (live?.get("phase") as? JsonPrimitive)?.contentOrNull,
+        step = v?.step,
+        total = v?.total,
+        loss = v?.latest?.get("loss"),
+        reward = v?.latest?.get("reward"),
+        etaSeconds = v?.etaSeconds,
+        phase = v?.phase,
     )
 }
 

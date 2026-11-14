@@ -17,7 +17,9 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -25,11 +27,16 @@ import androidx.work.workDataOf
 
 import java.security.Security
 import java.util.concurrent.TimeUnit
+import app.clustercontrol.core.AutoAdvance
 import app.clustercontrol.core.NoticeKind
+import app.clustercontrol.core.parseRunStatus
 import app.clustercontrol.core.diffSnapshots
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 private const val ERRORS = "errors"
@@ -49,7 +56,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
         val open = android.app.PendingIntent.getActivity(
             ctx, 0, Intent(ctx, MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE,
         )
-        val n = NotificationCompat.Builder(ctx, if (id == NoticeIds.FAILURE || id == NoticeIds.SUSPENDED) ERRORS else JOBS)
+        val n = NotificationCompat.Builder(ctx, if (id == NoticeIds.FAILURE || id == NoticeIds.SUSPENDED || id == NoticeIds.STUCK) ERRORS else JOBS)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(title).setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(open).setAutoCancel(true).build()
@@ -80,9 +87,40 @@ class WorkScheduler(private val ctx: Context, private val stores: Stores) {
 
     private fun workName(id: String) = PREFIX + id
 
+    private var etaTarget = 0L
+
+    /**
+     * One check shortly after the running job should end, so the next job starts within minutes even with the app
+     * closed (periodic work cannot run more often than every 15 minutes). Re-arming only when the target moves.
+     */
+    fun scheduleCheck(etaSeconds: Long) {
+        val delayMs = (etaSeconds + 90).coerceIn(120, 13 * 3600) * 1000
+        val target = System.currentTimeMillis() + delayMs
+        if (kotlin.math.abs(target - etaTarget) < 5 * 60_000) return
+        etaTarget = target
+        val request = OneTimeWorkRequestBuilder<AdvanceWorker>()
+            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(ctx).enqueueUniqueWork(ETA_WORK, ExistingWorkPolicy.REPLACE, request)
+    }
+
     companion object {
         const val TAG = "cc"
         const val PREFIX = "sched-"
+        const val ETA_WORK = "eta-advance"
+    }
+}
+
+/** The check scheduled for when the running job should end: starts the next one if the cluster is idle. */
+class AdvanceWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val g = ClusterApp.graph
+        g.ops.advance("fine job prevista")
+        // still running (the estimate was short)? look again when it should be over
+        val s = g.stores.state.value.snapshot
+        if (s?.active != null) g.scheduler.scheduleCheck(parseRunStatus(s.runStatus)?.etaSeconds ?: 900)
+        return Result.success()
     }
 }
 
@@ -108,7 +146,9 @@ class Graph(ctx: Context) {
     private val recorder = Recorder(stores, notifier, onSuspended = { scheduler.sync() })
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     // a job ending is news only when the app is not on screen (otherwise the dashboard shows it)
+    val advancer = AutoAdvance()
     val live = LiveSession(connector, stores, recorder::handleFailure, scope, onChange = { prev, now, foreground ->
+        now.active?.let { scheduler.scheduleCheck(parseRunStatus(now.runStatus)?.etaSeconds ?: 900) }
         if (!foreground) {
             diffSnapshots(prev, now).forEach {
                 val id = if (it.kind == NoticeKind.ALL_DONE) NoticeIds.ALL_DONE else NoticeIds.JOB_BASE + (it.key.toIntOrNull() ?: 0)
@@ -116,7 +156,17 @@ class Graph(ctx: Context) {
             }
         }
     })
-    val ops = ClusterOps(live, connector, stores, recorder)
+    val ops = ClusterOps(live, connector, stores, recorder, advancer, notifier)
+
+    init {
+        // the live session polls every few seconds: the moment a job is over and work waits, the next one is started
+        scope.launch {
+            live.state.map { it.snapshot to it.snapshotAt }.distinctUntilChanged().collect { (snap, at) ->
+                val fresh = at != null && System.currentTimeMillis() - at < 60_000
+                if (snap != null && fresh) runCatching { ops.advance("automatico", snap) }
+            }
+        }
+    }
 }
 
 class ClusterApp : Application() {

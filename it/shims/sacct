@@ -1,6 +1,15 @@
 #!/bin/bash
-# Fake SLURM sacct: every finished job completed fine.
+# Fake SLURM sacct: a job's state is /tmp/fakeslurm/state-<id> (default COMPLETED), its exit code
+# /tmp/fakeslurm/exit-<id> (default 0:0). The integration tests write them to simulate a TIMEOUT, an OOM...
+id=""
+prev=""
+for a in "$@"; do
+    [ "$prev" = "-j" ] && id="$a"
+    prev="$a"
+done
+state=$(cat "/tmp/fakeslurm/state-$id" 2>/dev/null || echo COMPLETED)
+exitcode=$(cat "/tmp/fakeslurm/exit-$id" 2>/dev/null || echo "0:0")
 case "$*" in
-    *ExitCode*) echo "0:0" ;;
-    *State*) echo "COMPLETED" ;;
+    *ExitCode*) echo "$exitcode" ;;
+    *State*) echo "$state" ;;
 esac

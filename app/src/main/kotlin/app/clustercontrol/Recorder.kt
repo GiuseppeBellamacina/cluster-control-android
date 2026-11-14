@@ -11,6 +11,7 @@ object NoticeIds {
     const val FAILURE = 1
     const val SUSPENDED = 2
     const val ALL_DONE = 3
+    const val STUCK = 4 // the next job does not start
     const val JOB_BASE = 1000 // + the SLURM job id: one notification per job
 }
 

@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,13 +39,14 @@ import app.clustercontrol.Link
 import app.clustercontrol.Op
 import app.clustercontrol.UiState
 import app.clustercontrol.core.JobNames
+import app.clustercontrol.core.MAX_RESUMES
 import app.clustercontrol.core.Point
 import app.clustercontrol.core.ScheduleAction
 import app.clustercontrol.core.downsample
 import app.clustercontrol.core.formatAgo
 import app.clustercontrol.core.formatCountdown
 import app.clustercontrol.core.nextTickAt
-import app.clustercontrol.core.parseEtaSeconds
+import app.clustercontrol.core.parseRunStatus
 import app.clustercontrol.core.percentOf
 import app.clustercontrol.progressOf
 import java.util.Locale
@@ -78,6 +80,14 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goMore: (
                     MetricCard("Reward", p.reward ?: reward.lastOrNull()?.value, reward, C.Green, Modifier.weight(1f))
                 }
             }
+            val view = remember(snap?.runStatus) { parseRunStatus(snap?.runStatus) }
+            if (a != null && view != null) {
+                RewardsCard(view, ui.series)
+                SeriesCard(ui.series)
+                EvalResultsCard(view)
+                MetricsCard(view)
+            }
+            if (snap != null && snap.errorsCount > 0) ErrorsCard(snap.errorsTail, snap.errorsCount)
             TickCard(ui, now)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn("Tick ora", actions::tick, Modifier.weight(1f), busy = ui.busy)
@@ -104,6 +114,7 @@ private fun grouped(n: Int) = "%,d".format(Locale.ITALY, n)
 private fun JobCard(ui: UiState, now: Long) {
     val snap = ui.snapshot
     val a = snap?.active
+    val view = remember(snap?.runStatus) { parseRunStatus(snap?.runStatus) }
     Card {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             when {
@@ -111,11 +122,13 @@ private fun JobCard(ui: UiState, now: Long) {
                 a.state.equals("RUNNING", true) -> Chip("In corso")
                 else -> Chip("In attesa", Tone.GREY)
             }
-            a?.let { JobNames.parse(it.name).type }?.let { Chip(if (it.equals("eval", true)) "Eval" else "Train", Tone.GREY) }
+            (view?.kind ?: a?.let { JobNames.parse(it.name).type })?.let {
+                IconChip(it, if (it.equals("eval", true)) "Eval" else it.replaceFirstChar { c -> c.uppercase() }, Tone.GREY)
+            }
             if (snap?.stopped == true) Chip("Pausa", Tone.RED)
             if (snap != null && a != null) Chip("Coda: ${snap.queue.size}", Tone.GREY)
         }
-        if (a == null || snap == null) {
+        if (snap == null || a == null) {
             Text("Nessun job in esecuzione", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Caption(if (snap == null) "Nessun dato" else "In coda: ${snap.queue.size}")
             return@Card
@@ -127,6 +140,13 @@ private fun JobCard(ui: UiState, now: Long) {
             Text(title.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 20.sp)
             if (title.subtitle.isNotEmpty()) Caption(title.subtitle)
         }
+        if (view != null) {
+            IdentityChips(view)
+            StageStepper(view)
+        }
+        snap.lastJob?.takeIf { it.id == a.id && (it.retries ?: 0) > 0 }?.let {
+            IconChip("rl", "Ripresa automatica ${it.retries}/$MAX_RESUMES", Tone.BLUE)
+        }
         Row(verticalAlignment = Alignment.Top) {
             Text(pct?.toString() ?: "--", fontSize = 56.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp, lineHeight = 60.sp)
             Text("%", Modifier.padding(top = 10.dp, start = 2.dp), fontSize = 22.sp, color = C.Faint, fontWeight = FontWeight.SemiBold)
@@ -137,8 +157,17 @@ private fun JobCard(ui: UiState, now: Long) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Caption(if (p.step != null) "${grouped(p.step)}${p.total?.let { " / ${grouped(it)}" } ?: ""}" else "")
             // counted down every second from the ETA of the last snapshot
-            val eta = parseEtaSeconds(p.eta)?.let { it - (now - (ui.snapshotAt ?: now)) / 1000 }
+            val eta = p.etaSeconds?.let { it - (now - (ui.snapshotAt ?: now)) / 1000 }
             if (eta != null && eta > 0) Caption("ETA " + formatCountdown(eta * 1000))
+        }
+        view?.let { v ->
+            val extra = listOfNotNull(
+                v.epoch?.let { "epoca ${"%.2f".format(Locale.ROOT, it)}" },
+                v.stepsPerSecond?.let { "${"%.2f".format(Locale.ROOT, it)} step/s" },
+                v.gpuMemGb?.let { "GPU ${"%.1f".format(Locale.ROOT, it)} GB" },
+            )
+            if (extra.isNotEmpty()) Caption(extra.joinToString(" · "))
+            if (v.evalActive) Caption("Valutazione in corso" + (v.evalProgress?.let { " ($it)" } ?: ""))
         }
     }
 }
@@ -187,16 +216,24 @@ private fun TickCard(ui: UiState, now: Long) {
     val interval = ui.schedules.firstOrNull { it.enabled && it.action == ScheduleAction.TICK }?.effectiveIntervalMinutes
     ListCard {
         ListRow {
-            Text("Prossimo tick", Modifier.weight(1f), fontSize = 14.sp)
-            val text = when {
-                interval == null -> "Tick automatico spento"
-                else -> nextTickAt(last?.at, interval, now)?.let { (it - now).let { ms -> if (ms <= 0) "ora" else "tra " + formatCountdown(ms) } } ?: "--"
+            Text("Avvio automatico", Modifier.weight(1f), fontSize = 14.sp)
+            when {
+                ui.suspended -> Chip("sospeso", Tone.RED)
+                ui.autoAdvance -> Chip("attivo", Tone.GREEN)
+                else -> Chip("spento", Tone.GREY)
             }
-            Text(text, fontSize = 13.sp, color = C.Faint)
+        }
+        if (interval != null) {
+            Sep()
+            ListRow {
+                Text("Prossimo tick forzato", Modifier.weight(1f), fontSize = 14.sp)
+                val text = nextTickAt(last?.at, interval, now)?.let { (it - now).let { ms -> if (ms <= 0) "ora" else "tra " + formatCountdown(ms) } } ?: "--"
+                Text(text, fontSize = 13.sp, color = C.Faint)
+            }
         }
         Sep()
         ListRow {
-            Text("Ultimo tick", Modifier.weight(1f), fontSize = 14.sp)
+            Text("Ultimo avvio", Modifier.weight(1f), fontSize = 14.sp)
             if (last == null) {
                 Text("mai", fontSize = 13.sp, color = C.Faint)
             } else {
