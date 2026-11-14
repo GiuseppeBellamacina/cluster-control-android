@@ -128,7 +128,7 @@ private fun JobCard(ui: UiState, now: Long) {
             if (snap?.stopped == true) Chip("Pausa", Tone.RED)
             if (snap != null && a != null) Chip("Coda: ${snap.queue.size}", Tone.GREY)
         }
-        if (a == null || snap == null) {
+        if (snap == null || a == null) {
             Text("Nessun job in esecuzione", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Caption(if (snap == null) "Nessun dato" else "In coda: ${snap.queue.size}")
             return@Card

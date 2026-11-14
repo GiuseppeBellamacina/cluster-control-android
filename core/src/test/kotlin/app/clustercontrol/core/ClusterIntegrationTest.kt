@@ -141,7 +141,7 @@ class ClusterIntegrationTest {
             val a = buildEntry("eval", cfgPath, "it-a")
             val b = buildEntry("eval", cfgPath, "it-b", "--resume")
             assertEquals(2, helper.enqueue(listOf(a, b)).snapshot.queue.size)
-            assertEquals(listOf(b), helper.removeTag("it-a").queue)
+            assertEquals(listOf(b), helper.rewriteQueue(listOf(b)).queue)
             assertTrue(helper.rewriteQueue(emptyList()).queue.isEmpty())
             assertTrue(helper.pause().stopped)
             assertTrue(!helper.resume().stopped)

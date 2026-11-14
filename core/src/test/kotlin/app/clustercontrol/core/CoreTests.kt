@@ -105,7 +105,7 @@ class CatalogTest {
     private val tree = resource("config_tree.txt").lines().filter { it.isNotBlank() }
 
     @Test
-    fun matchesTheRenderDriverConfigMap() {
+    fun matchesTheReferenceConfigMap() {
         val catalog = ConfigCatalog.fromTree(tree).associate { it.name to it.path }
         assertEquals(oracle, catalog)
     }
