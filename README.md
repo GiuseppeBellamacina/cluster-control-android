@@ -86,7 +86,7 @@ see that README); the raw log is only shown in the Log tab. A job that writes no
 
 The APK carries no credentials or endpoints: after installing it, open Altro > Configurazione and enter them. Every
 build is signed with the debug key kept in the `cc-android-home` Docker volume, so Android installs a newer APK (or a
-release from Altro > Aggiornamenti) over the installed app; lose the volume and you must reinstall once.
+release from Altro > Aggiornamenti) over the installed app; lose the volume and you must reinstall once (Android answers "app not installed" to an update signed with another key). Keep a copy of the key outside Docker, `%USERPROFILE%\.clustercontrol\debug.keystore`; `release.ps1 -Publish` refuses an apk whose signer differs from the last release (`-NewKey` overrides).
 
 The "project folder" you enter must be the one the cluster scripts themselves use (`PROJ_DIR` in `cluster/_lib.sh`).
 The project layout the app expects is the one of the t2g pipeline: `cluster/cluster_helper.sh` on the cluster and, in the
