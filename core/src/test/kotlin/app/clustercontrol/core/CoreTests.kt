@@ -390,6 +390,30 @@ class RunStatusViewTest {
     }
 
     @Test
+    fun readsTheFileTheT2gTrainingWrites() {
+        // produced by t2g's own adapter and callbacks (SFT then GRPO), not by hand: the producer/consumer contract
+        val v = assertNotNull(parse(resource("t2g_run_status.json")))
+        assertEquals("train", v.kind)
+        assertEquals("grpo", v.method)
+        assertEquals("Qwen2.5-0.5B-Instruct", v.modelName)
+        assertEquals(listOf("sft" to "done", "grpo" to "running"), v.stages.map { it.id to it.state })
+        assertEquals(7770 to 7770, v.stages.first().let { it.step to it.total })
+        assertEquals(3000, v.step)
+        assertEquals(5000, v.total, "the total comes from the trainer, not from the shared config")
+        assertEquals(60, percentOf(v.step, v.total))
+        assertTrue(v.badges.map { it.label }.containsAll(listOf("LoRA r=32", "4bit", "grammar", "retrieval", "aslg-pc12")))
+        assertEquals(setOf("bleu_reward", "gloss_order_reward"), v.rewardComponents.keys)
+        assertTrue(listOf("lr", "grad_norm", "kl", "reward_std", "completions/mean_length", "eval_loss").all { it in v.latest })
+        assertEquals(2, v.samples.size)
+        assertEquals(true, v.samples[0].match)
+        assertEquals(mapOf("bleu_reward" to -0.2, "gloss_order_reward" to 0.5), v.samples[1].rewards)
+        val (total, series) = parseSeriesJson(resource("t2g_run_status.series.json"))
+        assertEquals(5000, total)
+        assertTrue(series.keys.containsAll(listOf("loss", "reward", "rewards/bleu_reward", "lr", "grad_norm")))
+        assertTrue("completions/mean_length" in series)
+    }
+
+    @Test
     fun seriesSidecarOfTheRealLibraryParses() {
         val (total, series) = parseSeriesJson(resource("run_status_sample.series.json"))
         assertEquals(5000, total)
