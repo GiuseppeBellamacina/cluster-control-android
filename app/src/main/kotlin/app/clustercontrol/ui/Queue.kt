@@ -95,12 +95,10 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
             actions.queueMove(from.index, to.index)
         }
     }
-    // A row removed with a swipe leaves its dismissed state saved under its key, and Compose hands it back when the same
-    // key returns (Annulla). The restored row then starts "already swiped" and the app crashed trying to undo that.
-    // Every removal bumps the generation of the key, so a restored row is a new row with a fresh state.
+    // A row removed with a swipe leaves its swiped state saved under its key, and Compose hands it back when the same
+    // key returns (Annulla): the restored row would start already swiped away. Every removal bumps the generation of
+    // the key, so a restored row is a new row with a fresh state.
     val generations = remember { mutableStateMapOf<String, Int>() }
-    val generationSnapshot = generations.toMap()
-    val keys = remember(items, generationSnapshot) { stableKeys(items).map { "$it@${generationSnapshot[it] ?: 0}" } }
 
     Column(modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Coda") {
@@ -117,7 +115,13 @@ fun QueueScreen(ui: UiState, actions: Actions, snackbar: SnackbarHostState, modi
         }
         PullToRefreshBox(ui.refreshing, actions::refresh, Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize(), lazy, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(items, key = { i, _ -> keys[i] }) { index, entry ->
+                // The list and its keys are taken together, from ONE read of `items`: the lazy layout calls the key lambda
+                // as soon as `items` changes, before QueueScreen recomposes, so keys remembered outside this block were
+                // one edit behind and indexing them crashed the app when a removed job was restored (Annulla).
+                val shown = items
+                val generation = generations.toMap()
+                val keys = stableKeys(shown).map { "$it@${generation[it] ?: 0}" }
+                itemsIndexed(shown, key = { i, _ -> keys[i] }) { index, entry ->
                     ReorderableItem(reorder, key = keys[index]) { dragging ->
                         val lift by animateDpAsState(if (dragging) 10.dp else 0.dp, label = "lift")
                         // the state is created once: read the current index, not the one of the first composition

@@ -12,8 +12,8 @@ android {
         applicationId = "app.clustercontrol"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.5.1"
+        versionCode = 13
+        versionName = "0.5.2"
     }
 
     buildFeatures {
@@ -32,6 +32,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    testOptions { unitTests { isIncludeAndroidResources = true } }
 
     packaging {
         resources {
@@ -62,4 +64,8 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     testImplementation(kotlin("test"))
+    // UI behaviour on the JVM: Compose tests under Robolectric (the swipe / undo gestures of the queue)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 }
