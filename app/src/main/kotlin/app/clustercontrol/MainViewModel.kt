@@ -21,6 +21,7 @@ import app.clustercontrol.core.Snapshot
 import app.clustercontrol.core.SyncManifest
 import app.clustercontrol.core.buildEntry
 import app.clustercontrol.core.moved
+import app.clustercontrol.core.parseJobError
 import app.clustercontrol.core.parsePresets
 import app.clustercontrol.core.resolveJobs
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,7 @@ data class UiState(
     val lockEnabled: Boolean = true,
     val theme: String = "system",
     val autoAdvance: Boolean = true,
+    val errorsDismissedAt: String = "",
     val lockAvailable: Boolean = true,
 )
 
@@ -103,6 +105,7 @@ interface Actions {
     fun updateScripts()
     fun testConnection()
     fun clearHistory()
+    fun dismissErrors()
     fun requestBatteryExemption()
     fun checkUpdate()
     fun installUpdate()
@@ -124,7 +127,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
     private fun merge(l: LiveState, st: AppState, sch: List<Schedule>, hist: List<HistoryEntry>, loc: UiState) = loc.copy(
         snapshot = l.snapshot, snapshotAt = l.snapshotAt, link = l.link, error = l.error, series = l.series,
         schedules = sch, history = hist, suspended = st.autoSuspended, suspendReason = st.suspendReason,
-        theme = st.theme, autoAdvance = st.autoAdvance,
+        theme = st.theme, autoAdvance = st.autoAdvance, errorsDismissedAt = st.errorsDismissedAt,
     )
 
     val ui: StateFlow<UiState> = combine(g.live.state, g.stores.state, g.stores.schedules, g.stores.history, local) { l, st, sch, hist, loc -> merge(l, st, sch, hist, loc) }
@@ -418,7 +421,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app), Actions {
         }
     }
 
-    override fun clearHistory() = g.stores.clearHistory()
+    override fun clearHistory() {
+        g.stores.clearHistory()
+        dismissErrors() // clearing the history also clears the errors shown on the home
+    }
+
+    /** The cluster keeps its error log forever: hide what is there now, keep showing what happens next. */
+    override fun dismissErrors() {
+        val newest = g.stores.state.value.snapshot?.errorsTail?.mapNotNull(::parseJobError)?.maxOfOrNull { it.timestamp } ?: return
+        g.stores.updateState { it.copy(errorsDismissedAt = maxOf(it.errorsDismissedAt, newest)) }
+    }
 
     private companion object {
         const val CATALOG_CACHE = "catalog.txt"

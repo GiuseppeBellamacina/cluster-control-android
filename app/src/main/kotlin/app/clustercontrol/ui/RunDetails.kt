@@ -14,9 +14,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import app.clustercontrol.core.JobError
 import app.clustercontrol.core.MAX_RESUMES
 import app.clustercontrol.core.describeError
-import app.clustercontrol.core.parseJobError
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -156,12 +156,13 @@ fun SeriesCard(series: Map<String, List<Point>>) {
 
 /** The cluster's recent job errors: what hit the job and whether the chain put it back with --resume. */
 @Composable
-fun ErrorsCard(tail: List<String>, total: Int) {
-    val errors = tail.mapNotNull(::parseJobError).takeLast(3).reversed()
+fun ErrorsCard(errors: List<JobError>, onDismiss: () -> Unit) {
     Card {
-        Caption(if (total > errors.size) "Errori recenti ($total in tutto)" else "Errori recenti")
-        if (errors.isEmpty()) Caption("$total errori registrati sul cluster")
-        errors.forEach { e ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Caption("Errori recenti", Modifier.weight(1f))
+            LinkText("Nascondi", onDismiss)
+        }
+        errors.takeLast(3).reversed().forEach { e ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(describeError(e.errorType), Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

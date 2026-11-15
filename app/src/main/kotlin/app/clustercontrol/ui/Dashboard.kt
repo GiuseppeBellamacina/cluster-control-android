@@ -47,6 +47,7 @@ import app.clustercontrol.core.formatAgo
 import app.clustercontrol.core.formatCountdown
 import app.clustercontrol.core.nextTickAt
 import app.clustercontrol.core.parseRunStatus
+import app.clustercontrol.core.visibleErrors
 import app.clustercontrol.core.percentOf
 import app.clustercontrol.progressOf
 import java.util.Locale
@@ -87,7 +88,8 @@ fun DashboardScreen(ui: UiState, actions: Actions, modifier: Modifier, goMore: (
                 EvalResultsCard(view)
                 MetricsCard(view)
             }
-            if (snap != null && snap.errorsCount > 0) ErrorsCard(snap.errorsTail, snap.errorsCount)
+            val errors = visibleErrors(snap?.errorsTail.orEmpty(), ui.errorsDismissedAt)
+            if (errors.isNotEmpty()) ErrorsCard(errors, actions::dismissErrors)
             TickCard(ui, now)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn("Tick ora", actions::tick, Modifier.weight(1f), busy = ui.busy)

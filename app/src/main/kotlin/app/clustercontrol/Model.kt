@@ -35,6 +35,8 @@ data class AppState(
     val autoAdvance: Boolean = true,
     /** Id of the colour theme (see [Themes]); "system" follows the phone. */
     val theme: String = "system",
+    /** Timestamp of the newest cluster error the owner dismissed: older ones stay hidden. */
+    val errorsDismissedAt: String = "",
 )
 
 data class Progress(
