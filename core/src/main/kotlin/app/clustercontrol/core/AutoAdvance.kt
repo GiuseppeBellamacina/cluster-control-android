@@ -89,6 +89,13 @@ fun parseJobError(line: String): JobError? = runCatching {
     )
 }.getOrNull()
 
+/**
+ * The cluster keeps every job error it ever logged (and nothing the app does removes them): the app shows only those
+ * newer than [dismissedAt], the timestamp of the newest error the owner dismissed ("" = show all).
+ */
+fun visibleErrors(tail: List<String>, dismissedAt: String): List<JobError> =
+    tail.mapNotNull(::parseJobError).filter { it.timestamp > dismissedAt }
+
 /** The cluster's wording for an error type, in plain Italian. */
 fun describeError(type: String) = when (type) {
     "TIMEOUT" -> "Tempo limite (12 h) raggiunto"

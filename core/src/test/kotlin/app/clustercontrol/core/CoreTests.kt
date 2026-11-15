@@ -536,3 +536,19 @@ class JobErrorTest {
         assertNull(parseJobError("not json"))
     }
 }
+
+class VisibleErrorsTest {
+    private fun line(ts: String) =
+        """{"tag":"t","job_type":"train","error_type":"TIMEOUT","timestamp":"$ts","retry_num":0,"resolved":false}"""
+
+    @Test
+    fun everythingShowsUntilDismissedThenOnlyNewerErrors() {
+        val tail = listOf(line("2026-11-13 10:00:00"), line("2026-11-14 09:00:00"))
+        assertEquals(2, visibleErrors(tail, "").size)
+        assertEquals(1, visibleErrors(tail, "2026-11-13 10:00:00").size)
+        assertEquals(0, visibleErrors(tail, "2026-11-14 09:00:00").size)
+        // a new failure after the dismissal shows up again
+        assertEquals(1, visibleErrors(tail + line("2026-11-15 08:00:00"), "2026-11-14 09:00:00").size)
+        assertEquals(0, visibleErrors(listOf("garbage"), "").size)
+    }
+}
